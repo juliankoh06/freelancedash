@@ -1,0 +1,100 @@
+.App {
+  text-align: left;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure the layout container takes full height */
+.layout-container {
+  display: flex !important;
+  flex-direction: row !important;
+  height: 100vh !important;
+  width: 100vw !important;
+}
+
+/* Sidebar styles */
+.sidebar {
+  flex-shrink: 0 !important;
+  height: 100vh !important;
+  margin-right: 1rem !important;
+}
+
+/* Main content styles */
+.main-content {
+  flex: 1 !important;
+  height: 100vh !important;
+  overflow-y: auto !important;
+  margin-left: 0.5rem !important;
+}
+
+/* Dashboard stats horizontal layout */
+.dashboard-stats {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 1.5rem !important;
+}
+
+.dashboard-stat-card {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+/* Header layout */
+.header-container {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+}
+
+.header-title {
+  flex: 1 !important;
+}
+
+.header-right {
+  display: flex !important;
+  align-items: center !important;
+  margin-left: auto !important;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* underline on hover for navigation links */
+a:hover {
+  text-decoration: underline;
+}
