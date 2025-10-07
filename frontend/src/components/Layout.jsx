@@ -20,7 +20,10 @@ const Layout = ({ children, user }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const navigation = [
+  // Get user from props (passed from App.js which fetches from Firebase)
+  const currentUser = user;
+
+  const freelancerNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Project Tracking', href: '/project-tracking', icon: FolderOpen },
     { name: 'Transactions', href: '/transactions', icon: FileText },
@@ -28,6 +31,14 @@ const Layout = ({ children, user }) => {
     { name: 'Finances', href: '/finances', icon: DollarSign },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
+
+  const clientNavigation = [
+    { name: 'Project Progress', href: '/client-dashboard', icon: FolderOpen },
+    { name: 'Transactions', href: '/client-transactions', icon: FileText },
+    { name: 'Payment', href: '/client-payments', icon: FileText },
+  ];
+
+  const navigation = currentUser?.role === 'client' ? clientNavigation : freelancerNavigation;
 
   const isActive = (path) => location.pathname === path;
 
@@ -135,7 +146,7 @@ const Layout = ({ children, user }) => {
                     <User className="w-4 h-4 text-white" />
                   </div>
                   <span className="text-sm font-medium text-gray-700">
-                    {user?.displayName || user?.email || 'User Name'}
+                    {currentUser?.displayName || currentUser?.email || currentUser?.username || 'User Name'}
                   </span>
                 </div>
               </div>

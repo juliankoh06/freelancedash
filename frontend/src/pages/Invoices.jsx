@@ -11,8 +11,9 @@ import {
   Clock,
   AlertCircle
 } from 'lucide-react';
-import { collection, query, getDocs } from 'firebase/firestore';
-import { db } from '../firebase-config';
+import { collection, query, getDocs, where } from 'firebase/firestore';
+import { db, auth } from '../firebase-config';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -20,9 +21,16 @@ const Invoices = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    fetchInvoices();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) {
+        fetchInvoices();
+      }
+    });
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -31,7 +39,17 @@ const Invoices = () => {
 
   const fetchInvoices = async () => {
     try {
-      const invoicesQuery = query(collection(db, 'invoices'));
+      if (!currentUser || !currentUser.uid) {
+        console.error('No current user found');
+        setInvoices([]);
+        return;
+      }
+
+      // Fetch invoices filtered by user ID
+      const invoicesQuery = query(
+        collection(db, 'invoices'),
+        where('freelancerId', '==', currentUser.uid)
+      );
       const invoicesSnapshot = await getDocs(invoicesQuery);
       const invoicesData = invoicesSnapshot.docs.map(doc => ({
         id: doc.id,

@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config-simple');
+const { db } = require('../firebase-config');
 
 class Invoice {
   constructor(data) {
@@ -7,15 +7,12 @@ class Invoice {
     this.projectId = data.projectId;
     this.freelancerId = data.freelancerId;
     this.clientId = data.clientId;
+    this.clientEmail = data.clientEmail;
     this.amount = data.amount;
-    this.currency = data.currency || 'USD';
-    this.status = data.status || 'draft'; // draft, sent, paid, overdue, cancelled
+    this.tax = data.tax || 0;
+    this.total = data.total;
+    this.status = data.status || 'pending'; // pending, sent, paid, overdue
     this.dueDate = data.dueDate;
-    this.issueDate = data.issueDate || new Date();
-    this.paymentDate = data.paymentDate;
-    this.items = data.items || []; // Array of invoice items
-    this.notes = data.notes || '';
-    this.terms = data.terms || '';
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
@@ -62,15 +59,6 @@ class Invoice {
     }
   }
 
-  static async findByProject(projectId) {
-    try {
-      const snapshot = await db.collection('invoices').where('projectId', '==', projectId).get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      throw new Error('Error finding invoices: ' + error.message);
-    }
-  }
-
   static async update(id, updateData) {
     try {
       await db.collection('invoices').doc(id).update({
@@ -92,31 +80,12 @@ class Invoice {
     }
   }
 
-  static async getOverdueInvoices() {
+  static async getAll() {
     try {
-      const now = new Date();
-      const snapshot = await db.collection('invoices')
-        .where('status', '==', 'sent')
-        .where('dueDate', '<', now)
-        .get();
+      const snapshot = await db.collection('invoices').get();
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (error) {
-      throw new Error('Error getting overdue invoices: ' + error.message);
-    }
-  }
-
-  static async generateInvoiceNumber() {
-    try {
-      const snapshot = await db.collection('invoices').orderBy('createdAt', 'desc').limit(1).get();
-      if (snapshot.empty) {
-        return 'INV-0001';
-      }
-      
-      const lastInvoice = snapshot.docs[0].data();
-      const lastNumber = parseInt(lastInvoice.invoiceNumber.split('-')[1]);
-      return `INV-${String(lastNumber + 1).padStart(4, '0')}`;
-    } catch (error) {
-      throw new Error('Error generating invoice number: ' + error.message);
+      throw new Error('Error getting invoices: ' + error.message);
     }
   }
 }

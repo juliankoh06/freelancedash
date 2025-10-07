@@ -24,6 +24,28 @@ router.get('/freelancer/:freelancerId', async (req, res) => {
   }
 });
 
+// Get projects by client
+router.get('/client/:clientId', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const projects = await Project.findByClient(clientId);
+    res.json({ success: true, data: projects });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get projects by client email
+router.get('/client-email/:clientEmail', async (req, res) => {
+  try {
+    const { clientEmail } = req.params;
+    const projects = await Project.findByClientEmail(clientEmail);
+    res.json({ success: true, data: projects });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Create new project
 router.post('/', async (req, res) => {
   try {

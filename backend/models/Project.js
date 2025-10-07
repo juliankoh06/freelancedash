@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config-simple');
+const { db } = require('../firebase-config');
 
 class Project {
   constructor(data) {
@@ -7,6 +7,7 @@ class Project {
     this.description = data.description;
     this.freelancerId = data.freelancerId;
     this.clientId = data.clientId;
+    this.clientEmail = data.clientEmail; // Add client email support
     this.status = data.status || 'pending'; // pending, active, completed, cancelled
     this.priority = data.priority || 'medium'; // low, medium, high
     this.deadline = data.deadline;
@@ -56,6 +57,15 @@ class Project {
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (error) {
       throw new Error('Error finding projects: ' + error.message);
+    }
+  }
+
+  static async findByClientEmail(clientEmail) {
+    try {
+      const snapshot = await db.collection('projects').where('clientEmail', '==', clientEmail).get();
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      throw new Error('Error finding projects by email: ' + error.message);
     }
   }
 

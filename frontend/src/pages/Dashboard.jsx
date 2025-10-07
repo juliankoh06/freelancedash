@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase-config';
+import { db, auth } from '../firebase-config';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
@@ -16,33 +17,47 @@ const Dashboard = () => {
     earnings: { total: 0, thisMonth: 0, lastMonth: 0 }
   });
 
-  const [chartData, setChartData] = useState([
-    { month: 'Jan', earnings: 0 },
-    { month: 'Feb', earnings: 0 },
-    { month: 'Mar', earnings: 0 },
-    { month: 'Apr', earnings: 0 },
-    { month: 'May', earnings: 0 },
-    { month: 'Jun', earnings: 0 }
-  ]);
+  const [chartData, setChartData] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    fetchDashboardData();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) {
+        fetchDashboardData();
+      }
+    });
+    return unsubscribe;
   }, []);
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch projects
-      const projectsQuery = query(collection(db, 'projects'));
+      if (!currentUser || !currentUser.uid) {
+        console.error('No current user found');
+        return;
+      }
+
+      // Fetch projects filtered by user ID
+      const projectsQuery = query(
+        collection(db, 'projects'),
+        where('freelancerId', '==', currentUser.uid)
+      );
       const projectsSnapshot = await getDocs(projectsQuery);
       const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Fetch tasks
-      const tasksQuery = query(collection(db, 'tasks'));
+      // Fetch tasks filtered by user ID
+      const tasksQuery = query(
+        collection(db, 'tasks'),
+        where('assignedTo', '==', currentUser.uid)
+      );
       const tasksSnapshot = await getDocs(tasksQuery);
       const tasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Fetch invoices
-      const invoicesQuery = query(collection(db, 'invoices'));
+      // Fetch invoices filtered by user ID
+      const invoicesQuery = query(
+        collection(db, 'invoices'),
+        where('freelancerId', '==', currentUser.uid)
+      );
       const invoicesSnapshot = await getDocs(invoicesQuery);
       const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 

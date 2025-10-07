@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config-simple');
+const { db } = require('../firebase-config');
 
 class User {
   constructor(data) {

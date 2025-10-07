@@ -1,82 +1,70 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+const { admin, db } = require('../firebase-config');
 
 // Login route
 router.post('/login', async (req, res) => {
-  const { identifier, password } = req.body;
+  const { email, password } = req.body;
 
-  if (!identifier || !password) {
+  if (!email || !password) {
     return res.status(400).json({ error: 'Missing fields' });
   }
 
   try {
-    const user = await User.findOne({ 
-      $or: [{ email: identifier }, { username: identifier }]
-    });
+    // Sign in with Firebase Auth
+    const userCredential = await admin.auth().signInWithEmailAndPassword(email, password);
+    
+    // Get user data from Firestore
+    const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
+    const userData = userDoc.data();
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User data not found' });
+    }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
-
-    // Return user data without JWT token
+    // Return user data including role
     res.json({ 
-      user: { 
-        id: user._id, 
-        username: user.username,
-        email: user.email,
-        role: user.role
-      } 
+      user: {
+        id: userCredential.user.uid,
+        username: userData.username,
+        email: userData.email,
+        role: userData.role
+      }
     });
   } catch (err) {
     console.error('Login error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+    res.status(401).json({ error: 'Invalid credentials' });
   }
 });
 
 // Registration route
 router.post('/register', async (req, res) => {
-  const { username, email, password, role } = req.body;
-
-  if (!username || !email || !password || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-
   try {
-    // Check if user already exists
-    const existingUser = await User.findByEmail(email);
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email already registered' });
+    const { email, password, username, role } = req.body;
+
+    if (!['freelancer', 'client'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role specified' });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Create user with role
-    const userData = {
+    // Create user in Firebase Auth
+    const userRecord = await admin.auth().createUser({
+      email,
+      password,
+      displayName: username
+    });
+
+    // Save additional user data in Firestore
+    await db.collection('users').doc(userRecord.uid).set({
       username,
       email,
-      password: hashedPassword,
       role,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    const newUser = await User.create(userData);
-    res.status(201).json({ 
-      message: 'User registered successfully',
-      user: {
-        id: newUser.id,
-        username: newUser.username,
-        email: newUser.email,
-        role: newUser.role
-      }
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Server error' });
+
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

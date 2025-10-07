@@ -41,11 +41,26 @@ export default function Register() {
       return;
     }
 
+    const registerStartTime = performance.now();
     try {
+      console.log('📝 Starting registration process...');
+      
+      console.log('👤 Creating Firebase user account...');
+      const authStartTime = performance.now();
       const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const authTime = performance.now();
+      console.log(`✅ User account created in ${(authTime - authStartTime).toFixed(2)}ms`);
+      
       if (auth.currentUser) {
+        console.log('📝 Updating user profile...');
+        const profileStartTime = performance.now();
         await updateProfile(auth.currentUser, { displayName: username });
+        const profileTime = performance.now();
+        console.log(`✅ Profile updated in ${(profileTime - profileStartTime).toFixed(2)}ms`);
       }
+      
+      console.log('💾 Saving user data to Firestore...');
+      const firestoreStartTime = performance.now();
       await setDoc(doc(db, 'users', cred.user.uid), {
         uid: cred.user.uid,
         email,
@@ -53,8 +68,18 @@ export default function Register() {
         role,
         createdAt: new Date().toISOString()
       });
-      navigate('/dashboard');
+      const firestoreTime = performance.now();
+      console.log(`✅ User data saved in ${(firestoreTime - firestoreStartTime).toFixed(2)}ms`);
+
+      const totalRegisterTime = performance.now();
+      console.log(`🏁 Total registration time: ${(totalRegisterTime - registerStartTime).toFixed(2)}ms`);
+
+      // Navigate based on role (App.js will handle fetching user data from Firebase)
+      console.log(`🧭 Navigating to ${role === 'client' ? 'client' : 'freelancer'} dashboard...`);
+      navigate(role === 'client' ? '/client-dashboard' : '/dashboard');
     } catch (err) {
+      const errorTime = performance.now();
+      console.error(`❌ Registration failed after ${(errorTime - registerStartTime).toFixed(2)}ms:`, err);
       setError(err.message || 'Registration failed.');
     }
   };
