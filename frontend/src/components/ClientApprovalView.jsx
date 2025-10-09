@@ -75,7 +75,7 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
           }
         } catch (invoiceError) {
           console.error('Invoice generation failed:', invoiceError);
-          alert('⚠️ Project approved but invoice generation failed. Please check the console for details.');
+          alert('Project approved but invoice generation failed. Please check the console for details.');
         }
       } else {
         // Add revision comment for freelancer
