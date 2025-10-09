@@ -17,30 +17,19 @@ router.post('/send-invoice', async (req, res) => {
   try {
     const { invoiceId, clientEmail, invoiceData } = req.body;
 
-    console.log('📧 Invoice email request received:', {
-      invoiceId,
-      clientEmail,
-      invoiceData: {
-        invoiceNumber: invoiceData.invoiceNumber,
-        projectTitle: invoiceData.projectTitle,
-        totalAmount: invoiceData.totalAmount,
-        currency: invoiceData.currency,
-        issueDate: invoiceData.issueDate,
-        dueDate: invoiceData.dueDate
-      }
-    });
+    const attachments = invoiceData.pdfAttachment ? [{
+      filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
+      content: invoiceData.pdfAttachment,
+      encoding: 'base64',
+      contentType: 'application/pdf'
+    }] : [];
 
     const mailOptions = {
       from: process.env.EMAIL_USER || 'your-email@gmail.com',
       to: clientEmail,
       subject: `Invoice ${invoiceData.invoiceNumber} - ${invoiceData.projectTitle}`,
       html: generateInvoiceEmailHTML(invoiceData),
-      attachments: invoiceData.pdfAttachment ? [{
-        filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
-        content: invoiceData.pdfAttachment,
-        encoding: 'base64',
-        contentType: 'application/pdf'
-      }] : []
+      attachments: attachments
     };
 
     const result = await transporter.sendMail(mailOptions);
@@ -56,7 +45,6 @@ router.post('/send-invoice', async (req, res) => {
           sentAt: new Date(),
           emailMessageId: result.messageId
         });
-        console.log('✅ Invoice status updated in database');
       } else {
         console.log('⚠️ Invoice not found in database, skipping status update');
       }

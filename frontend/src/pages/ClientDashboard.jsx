@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc, onSnapshot, orderBy, addDoc } from 'firebase/firestore';
 import { db } from '../firebase-config';
+import apiService from '../services/api';
 import ClientApprovalView from '../components/ClientApprovalView';
 import { 
   CheckCircle, 
@@ -59,32 +60,25 @@ const ClientDashboard = ({ user }) => {
 
   const fetchClientProjects = async () => {
     try {
-      console.log('Fetching client projects for user:', user);
-      
       if (!user || !user.email) {
-        console.error('No user email found');
         setProjects([]);
         return;
       }
 
-      // Fetch projects by client email from Firebase
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        where('clientEmail', '==', user.email)
-      );
-      const projectsSnapshot = await getDocs(projectsQuery);
-      const allProjects = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      // Set authentication token
+      if (user.accessToken) {
+        apiService.setToken(user.accessToken);
+      }
+
+      // Fetch projects by client email from API
+      const response = await apiService.getProjectsByClientEmail(user.email);
+      const allProjects = response.data || [];
       
       // Filter out completed and pending_approval projects (they go to Pending Approvals)
       const activeProjects = allProjects.filter(project => 
         project.status !== 'completed' && project.status !== 'pending_approval'
       );
       
-      console.log('All projects:', allProjects);
-      console.log('Active projects (filtered):', activeProjects);
       setProjects(activeProjects);
 
       // Fetch freelancer usernames for all projects
@@ -109,10 +103,13 @@ const ClientDashboard = ({ user }) => {
 
   const fetchPendingApprovals = async () => {
     try {
+      // This would need to be implemented in the backend API
+      // For now, we'll keep the direct Firestore access for completion requests
+      // as this is a specific business logic that might not need API abstraction
       const q = query(
         collection(db, 'completion_requests'),
         where('clientEmail', '==', user?.email),
-        where('status', '==', 'pending')
+        where('status', '==', 'pending_approval')
       );
       const snapshot = await getDocs(q);
       const approvals = snapshot.docs.map(doc => ({
@@ -125,6 +122,8 @@ const ClientDashboard = ({ user }) => {
       setPendingApprovals([]);
     }
   };
+
+
 
 
   const getStatusColor = (status) => {
@@ -156,10 +155,6 @@ const ClientDashboard = ({ user }) => {
   };
 
   const handleViewProgress = async (project) => {
-      console.log('View Progress button clicked');
-      console.log('Project data:', project);
-      console.log('Project ID:', project.id);
-    
     setSelectedProject(project);
     setLoadingDetails(true);
     
@@ -176,8 +171,6 @@ const ClientDashboard = ({ user }) => {
 
   const fetchProjectDetails = async (projectId) => {
     try {
-      console.log('Fetching project details for ID:', projectId);
-      
       // Fetch project tasks
       const tasksQuery = query(
         collection(db, 'tasks'),
@@ -190,7 +183,6 @@ const ClientDashboard = ({ user }) => {
         ...doc.data()
       }));
       setTasks(tasksData);
-      console.log('Tasks fetched:', tasksData.length);
 
       // Fetch progress updates
       const progressQuery = query(
@@ -204,7 +196,6 @@ const ClientDashboard = ({ user }) => {
         ...doc.data()
       }));
       setProgressUpdates(progressData);
-      console.log('Progress updates fetched:', progressData.length);
 
       // Calculate time entries from tasks
       const timeEntriesData = tasksData
@@ -217,7 +208,6 @@ const ClientDashboard = ({ user }) => {
           status: task.status
         }));
       setTimeEntries(timeEntriesData);
-      console.log('Time entries calculated:', timeEntriesData.length);
 
     } catch (error) {
       console.error('Error fetching project details:', error);
@@ -301,6 +291,7 @@ const ClientDashboard = ({ user }) => {
           </div>
           <ClientApprovalView
             projectId={selectedApproval.projectId}
+            user={user}
             onApprovalUpdate={() => {
               fetchPendingApprovals();
               fetchClientProjects();
@@ -700,6 +691,7 @@ const ClientDashboard = ({ user }) => {
                     </div>
                   </div>
                 )}
+
 
                 {activeTab === 'billing' && (
                   <div className="space-y-4">

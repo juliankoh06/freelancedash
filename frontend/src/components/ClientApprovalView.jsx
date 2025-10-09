@@ -5,7 +5,7 @@ import { db } from '../firebase-config';
 import invoiceService from '../services/invoiceService';
 import { INVOICE_STATUSES } from '../models/Invoice';
 
-const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
+const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
   const [completionRequest, setCompletionRequest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -16,26 +16,17 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
 
   const fetchCompletionRequest = async () => {
     try {
-      console.log('Fetching completion request for projectId:', projectId);
       const q = query(
         collection(db, 'completion_requests'),
         where('projectId', '==', projectId),
-        where('status', '==', 'pending')
+        where('status', '==', 'pending_approval')
       );
       const snapshot = await getDocs(q);
       
-      console.log('Completion request query result:', {
-        empty: snapshot.empty,
-        size: snapshot.size,
-        docs: snapshot.docs.length
-      });
-      
       if (!snapshot.empty) {
         const request = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-        console.log('Found completion request:', request);
         setCompletionRequest(request);
       } else {
-        console.log('No pending completion request found for project:', projectId);
         setCompletionRequest(null);
       }
     } catch (error) {
@@ -55,42 +46,28 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
     
     setApproving(true);
     try {
-      console.log('Starting approval process:', {
-        approved,
-        completionRequestId: completionRequest.id,
-        projectId,
-        completionRequest: completionRequest
-      });
 
       // Update completion request status
-      console.log('Updating completion request...');
       await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
         status: approved ? 'approved' : 'rejected',
         respondedAt: new Date(),
         clientNotes: approved ? 'Work approved' : 'Work needs revision'
       });
-      console.log('✅ Completion request updated');
 
       // Update project status
-      console.log('Updating project status...');
       await updateDoc(doc(db, 'projects', projectId), {
         status: approved ? 'completed' : 'active',
         updatedAt: new Date()
       });
-      console.log('✅ Project status updated');
 
       if (approved) {
         // Generate invoice automatically
-        console.log('Generating invoice...');
         try {
           const invoiceResult = await generateInvoice();
-          console.log('✅ Invoice generated successfully');
           
           // Send invoice email automatically
-          console.log('Sending invoice email...');
           try {
             await invoiceService.sendInvoiceEmail(invoiceResult.invoiceId);
-            console.log('✅ Invoice email sent successfully');
             alert('✅ Project approved! Invoice generated and sent to client via email.');
           } catch (emailError) {
             console.error('Email sending failed:', emailError);
@@ -102,7 +79,6 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
         }
       } else {
         // Add revision comment for freelancer
-        console.log('Adding revision comment...');
         await addDoc(collection(db, 'project_comments'), {
           projectId: projectId,
           freelancerId: completionRequest.freelancerId,
@@ -113,13 +89,10 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
           createdAt: new Date(),
           updatedAt: new Date()
         });
-        console.log('✅ Revision comment added');
         alert('📝 Revision requested! Freelancer has been notified to improve the work.');
       }
 
-      console.log('Calling onApprovalUpdate callback...');
       onApprovalUpdate?.(approved);
-      console.log('✅ Approval process completed successfully');
       
     } catch (error) {
       console.error('Error updating approval:', {
@@ -145,16 +118,18 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
         totalAmount,
         totalHours,
         hourlyRate,
-        projectTitle: completionRequest.projectTitle
+        projectTitle: completionRequest.projectTitle,
+        clientEmail: completionRequest.clientEmail,
+        userEmail: user?.email
       });
 
       const invoiceData = {
         projectId: projectId,
         projectTitle: completionRequest.projectTitle || 'Untitled Project',
-        clientId: completionRequest.clientId || null,
-        clientEmail: completionRequest.clientEmail || '',
+        clientId: completionRequest.clientId || 'unknown-client',
+        clientEmail: completionRequest.clientEmail || user?.email || '',
         clientName: 'Client', // You might want to fetch this from user data
-        freelancerId: completionRequest.freelancerId || null,
+        freelancerId: completionRequest.freelancerId || 'unknown-freelancer',
         freelancerName: completionRequest.freelancerName || 'Freelancer',
         freelancerEmail: '', // You might want to fetch this
         issueDate: new Date(),
@@ -174,14 +149,14 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
           }
         ],
         paymentTerms: 'Net 30',
-        notes: `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${totalHours.toFixed(2)} hours.`,
+        notes: `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${(totalHours || 0).toFixed(2)} hours.`,
         terms: 'Payment is due within 30 days of invoice date. Thank you for your business!'
       };
 
       // Add line item for hours if we have hourly rate data
       if (totalHours > 0 && hourlyRate > 0) {
         invoiceData.lineItems.push({
-          description: `Total hours worked: ${totalHours.toFixed(2)}h`,
+          description: `Total hours worked: ${(totalHours || 0).toFixed(2)}h`,
           quantity: totalHours,
           rate: hourlyRate,
           amount: totalHours * hourlyRate
@@ -194,6 +169,7 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
       
       if (result.success) {
         console.log('✅ Invoice created successfully:', result.id);
+        console.log('Invoice data saved:', invoiceData);
         return { success: true, invoiceId: result.id, invoice: result.invoice };
       } else {
         console.error('Invoice creation failed:', result.error);
@@ -262,10 +238,10 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
             <span className="text-sm font-medium text-yellow-900">Total Amount</span>
           </div>
           <p className="text-lg font-semibold text-yellow-900">
-            RM{(completionRequest.totalAmount * 1.06).toFixed(2)}
+            RM{((completionRequest.totalAmount || 0) * 1.06).toFixed(2)}
           </p>
           <p className="text-sm text-yellow-700">
-            {completionRequest.totalHours}h × RM{completionRequest.hourlyRate}/h
+            {completionRequest.totalHours || 0}h × RM{completionRequest.hourlyRate || 0}/h
           </p>
         </div>
       </div>
@@ -275,16 +251,16 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate }) => {
         <h4 className="text-md font-medium text-gray-900 mb-3">Project Details</h4>
         <div className="bg-gray-50 p-4 rounded-lg">
           <p className="text-sm text-gray-700 mb-2">
-            <strong>Project:</strong> {completionRequest.projectTitle}
+            <strong>Project:</strong> {completionRequest.projectTitle || 'Untitled Project'}
           </p>
           <p className="text-sm text-gray-700 mb-2">
-            <strong>Total Hours:</strong> {completionRequest.totalHours.toFixed(2)} hours
+            <strong>Total Hours:</strong> {(completionRequest.totalHours || 0).toFixed(2)} hours
           </p>
           <p className="text-sm text-gray-700 mb-2">
-            <strong>Hourly Rate:</strong> RM{completionRequest.hourlyRate}/hour
+            <strong>Hourly Rate:</strong> RM{completionRequest.hourlyRate || 0}/hour
           </p>
           <p className="text-sm text-gray-700">
-            <strong>Notes:</strong> {completionRequest.notes}
+            <strong>Notes:</strong> {completionRequest.notes || 'No additional notes provided'}
           </p>
         </div>
       </div>

@@ -288,14 +288,12 @@ class InvoiceService {
         const uint8Array = new Uint8Array(arrayBuffer);
         const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
         pdfAttachment = base64;
-        
-        console.log('✅ PDF generated for email attachment');
       } catch (pdfError) {
-        console.warn('⚠️ Could not generate PDF attachment:', pdfError.message);
+        console.error('PDF generation failed:', pdfError);
         // Continue without PDF attachment
+        pdfAttachment = null;
       }
       
-      // Call backend email API
       const response = await fetch('http://localhost:5000/api/email/send-invoice', {
         method: 'POST',
         headers: {

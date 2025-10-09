@@ -25,41 +25,45 @@ import Layout from './components/Layout';
 import { auth, db } from './firebase-config';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import apiService from './services/api';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   useEffect(() => {
-    console.log('🚀 App.js - Setting up auth listener');
-    const startTime = performance.now();
+        const startTime = performance.now();
     
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       const authTime = performance.now();
-      console.log(`⏱️ Auth state changed in ${(authTime - startTime).toFixed(2)}ms`);
       
       if (user) {
-        console.log('👤 User authenticated:', user.uid);
         const userFetchStart = performance.now();
         
         try {
           // Fetch user data from Firebase Firestore
-          console.log('📡 Fetching user data from Firestore...');
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           const userFetchTime = performance.now();
-          console.log(`📡 User data fetched in ${(userFetchTime - userFetchStart).toFixed(2)}ms`);
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            console.log('✅ User data found:', userData.role);
-            setCurrentUser({
+            
+            // Get the Firebase ID token for API authentication
+            const token = await user.getIdToken();
+            
+            const userWithToken = {
               uid: user.uid,
               email: user.email,
               displayName: user.displayName,
+              accessToken: token,
               ...userData
-            });
+            };
+            
+            // Set token in API service
+            apiService.setToken(token);
+            
+            setCurrentUser(userWithToken);
           } else {
-            console.log('⚠️ User document not found in Firestore');
             setCurrentUser(user);
           }
         } catch (error) {
@@ -67,12 +71,10 @@ function App() {
           setCurrentUser(user);
         }
       } else {
-        console.log('👋 User logged out');
         setCurrentUser(null);
       }
       
       const totalTime = performance.now();
-      console.log(`🏁 Auth flow completed in ${(totalTime - startTime).toFixed(2)}ms`);
       setIsLoadingAuth(false);
     });
     return unsubscribe;
@@ -89,7 +91,7 @@ function App() {
             element={isLoadingAuth ? null : (isAuthenticated ? (
               currentUser?.role === 'client' ? 
                 <Layout user={currentUser}><ClientDashboard user={currentUser} /></Layout> : 
-                <Layout user={currentUser}><Dashboard /></Layout>
+                <Layout user={currentUser}><Dashboard user={currentUser} /></Layout>
             ) : <Navigate to="/login" />)} 
           />
           <Route 
@@ -97,36 +99,36 @@ function App() {
             element={isLoadingAuth ? null : (isAuthenticated ? (
               currentUser?.role === 'client' ? 
                 <Navigate to="/client-dashboard" /> : 
-                <Layout user={currentUser}><Dashboard /></Layout>
+                <Layout user={currentUser}><Dashboard user={currentUser} /></Layout>
             ) : <Navigate to="/login" />)} 
           />
           <Route 
             path="/project-tracking" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><ProjectTracking /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><ProjectTracking user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/projects" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Projects /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Projects user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/invoices" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Invoices /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Invoices user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/clients" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Clients /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Clients user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/transactions" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Transactions /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Transactions user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/finances" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Finances /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Finances user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
           />
           <Route 
             path="/settings" 
-            element={isLoadingAuth ? null : (isAuthenticated ? <Layout user={currentUser}><Settings /></Layout> : <Navigate to="/login" />)} 
+            element={isLoadingAuth ? null : (isAuthenticated ? <Layout user={currentUser}><Settings user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
           
           {/* Client Routes */}
@@ -150,9 +152,6 @@ function App() {
             path="/project-progress/:projectId" 
             element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? (
               (() => {
-                console.log('🔍 ProjectProgress route triggered');
-                console.log('🔍 isAuthenticated:', isAuthenticated);
-                console.log('🔍 currentUser role:', currentUser?.role);
                 return <ProjectProgress />;
               })()
             ) : <Navigate to="/login" />)} 

@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 // PDF Generator for Invoices
 export class InvoicePDFGenerator {
@@ -74,7 +74,7 @@ export class InvoicePDFGenerator {
       `RM${item.amount.toFixed(2)}`
     ]);
     
-    doc.autoTable({
+    autoTable(doc, {
       head: [['Description', 'Qty', 'Rate', 'Amount']],
       body: tableData,
       startY: 180,
