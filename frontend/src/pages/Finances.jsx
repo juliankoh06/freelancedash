@@ -7,7 +7,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase-config';
 
 const Finances = ({ user }) => {
@@ -35,20 +35,23 @@ const Finances = ({ user }) => {
     try {
       setLoading(true);
       
-      // Fetch invoices
+      // Helper function for transaction amounts
+      const getTransactionAmount = (transaction) => {
+        return transaction.amount || transaction.total || 0;
+      };
+      
+      // Fetch invoices (without orderBy to avoid index requirement)
       const invoicesQuery = query(
         collection(db, 'invoices'),
-        where('freelancerId', '==', user.uid),
-        orderBy('createdAt', 'desc')
+        where('freelancerId', '==', user.uid)
       );
       const invoicesSnapshot = await getDocs(invoicesQuery);
       const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-      // Fetch transactions
+      
+      // Fetch transactions (without orderBy to avoid index requirement)
       const transactionsQuery = query(
         collection(db, 'transactions'),
-        where('freelancerId', '==', user.uid),
-        orderBy('createdAt', 'desc')
+        where('freelancerId', '==', user.uid)
       );
       const transactionsSnapshot = await getDocs(transactionsQuery);
       const transactions = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -61,28 +64,29 @@ const Finances = ({ user }) => {
       const projectsSnapshot = await getDocs(projectsQuery);
       const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Calculate financial metrics
-      const totalEarnings = invoices
-        .filter(invoice => invoice.status === 'paid')
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
-
-      const monthlyEarnings = invoices
-        .filter(invoice => {
-          if (invoice.status !== 'paid' || !invoice.paidAt) return false;
-          const paidDate = invoice.paidAt.toDate ? invoice.paidAt.toDate() : new Date(invoice.paidAt);
+      // Calculate financial metrics from TRANSACTIONS (same as Transactions page)
+      const paidTransactions = transactions.filter(transaction => transaction.status === 'paid');
+      const pendingTransactions = transactions.filter(transaction => transaction.status === 'pending');
+      const overdueTransactions = transactions.filter(transaction => transaction.status === 'overdue');
+      
+      // getTransactionAmount is already defined at the top of the function
+      
+      const totalEarnings = paidTransactions.reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
+      
+      const monthlyEarnings = paidTransactions
+        .filter(transaction => {
+          if (!transaction.createdAt) return false;
+          const transactionDate = transaction.createdAt.toDate ? 
+            transaction.createdAt.toDate() : new Date(transaction.createdAt);
           const now = new Date();
-          return paidDate.getMonth() === now.getMonth() && 
-                 paidDate.getFullYear() === now.getFullYear();
+          return transactionDate.getMonth() === now.getMonth() && 
+                 transactionDate.getFullYear() === now.getFullYear();
         })
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
+        .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
 
-      const pendingAmount = invoices
-        .filter(invoice => invoice.status === 'sent')
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
-
-      const overdueAmount = invoices
-        .filter(invoice => invoice.status === 'overdue')
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
+      const pendingAmount = pendingTransactions.reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
+      const overdueAmount = overdueTransactions.reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
+        
 
       // Calculate average payment time
       const paidInvoices = invoices.filter(invoice => 
@@ -96,40 +100,36 @@ const Finances = ({ user }) => {
           }, 0) / paidInvoices.length
         : 0;
 
-      // Top clients by earnings
+      // Top clients by earnings (from transactions)
       const clientEarnings = {};
-      invoices
-        .filter(invoice => invoice.status === 'paid')
-        .forEach(invoice => {
-          const clientId = invoice.clientId;
-          if (!clientEarnings[clientId]) {
-            clientEarnings[clientId] = {
-              clientId,
-              clientEmail: invoice.clientEmail,
-              totalEarnings: 0,
-              projectCount: 0
-            };
-          }
-          clientEarnings[clientId].totalEarnings += invoice.totalAmount || 0;
-          clientEarnings[clientId].projectCount += 1;
-        });
+      paidTransactions.forEach(transaction => {
+        const clientId = transaction.clientEmail || transaction.clientId;
+        if (!clientEarnings[clientId]) {
+          clientEarnings[clientId] = {
+            clientId,
+            clientEmail: transaction.clientEmail,
+            totalEarnings: 0,
+            projectCount: 0
+          };
+        }
+        clientEarnings[clientId].totalEarnings += getTransactionAmount(transaction);
+        clientEarnings[clientId].projectCount += 1;
+      });
 
       const topClients = Object.values(clientEarnings)
         .sort((a, b) => b.totalEarnings - a.totalEarnings)
         .slice(0, 5);
 
-      // Payment methods analysis
+      // Payment methods analysis (from transactions)
       const paymentMethods = {};
-      transactions
-        .filter(transaction => transaction.status === 'paid')
-        .forEach(transaction => {
-          const method = transaction.paymentMethod || 'Unknown';
-          if (!paymentMethods[method]) {
-            paymentMethods[method] = { count: 0, amount: 0 };
-          }
-          paymentMethods[method].count += 1;
-          paymentMethods[method].amount += transaction.amount || 0;
-        });
+      paidTransactions.forEach(transaction => {
+        const method = transaction.paymentMethod || 'Unknown';
+        if (!paymentMethods[method]) {
+          paymentMethods[method] = { count: 0, amount: 0 };
+        }
+        paymentMethods[method].count += 1;
+        paymentMethods[method].amount += getTransactionAmount(transaction);
+      });
 
       // Monthly trend (last 6 months)
       const monthlyTrend = [];
@@ -138,14 +138,15 @@ const Finances = ({ user }) => {
         date.setMonth(date.getMonth() - i);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         
-        const monthEarnings = invoices
-          .filter(invoice => {
-            if (invoice.status !== 'paid' || !invoice.paidAt) return false;
-            const paidDate = invoice.paidAt.toDate ? invoice.paidAt.toDate() : new Date(invoice.paidAt);
-            return paidDate.getMonth() === date.getMonth() && 
-                   paidDate.getFullYear() === date.getFullYear();
+        const monthEarnings = paidTransactions
+          .filter(transaction => {
+            if (!transaction.createdAt) return false;
+            const transactionDate = transaction.createdAt.toDate ? 
+              transaction.createdAt.toDate() : new Date(transaction.createdAt);
+            return transactionDate.getMonth() === date.getMonth() && 
+                   transactionDate.getFullYear() === date.getFullYear();
           })
-          .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
+          .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
 
         monthlyTrend.push({
           month: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
@@ -153,30 +154,28 @@ const Finances = ({ user }) => {
         });
       }
 
-      // Recent transactions
-      const recentTransactions = transactions
-        .filter(transaction => transaction.status === 'paid')
-        .slice(0, 10);
+      // Recent transactions (already filtered above)
+      const recentTransactions = paidTransactions.slice(0, 10);
 
-      // Project earnings
+      // Project earnings (from transactions)
       const projectEarnings = projects.map(project => {
-        const projectInvoices = invoices.filter(invoice => invoice.projectId === project.id);
-        const projectTotal = projectInvoices
-          .filter(invoice => invoice.status === 'paid')
-          .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
+        const projectTransactions = transactions.filter(transaction => transaction.projectId === project.id);
+        const projectTotal = projectTransactions
+          .filter(transaction => transaction.status === 'paid')
+          .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
         
         return {
           projectId: project.id,
           projectTitle: project.title,
           clientEmail: project.clientEmail,
           totalEarnings: projectTotal,
-          invoiceCount: projectInvoices.length,
+          transactionCount: projectTransactions.length,
           status: project.status
         };
       }).sort((a, b) => b.totalEarnings - a.totalEarnings);
-
+      
       setFinancialData({
-        totalEarnings,
+        totalEarnings, // Use actual calculated value
         monthlyEarnings,
         pendingAmount,
         overdueAmount,
@@ -193,6 +192,12 @@ const Finances = ({ user }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  // Helper function for transaction amounts (available in render scope)
+  const getTransactionAmount = (transaction) => {
+    return transaction.amount || transaction.total || 0;
   };
 
   if (loading) {
@@ -218,6 +223,7 @@ const Finances = ({ user }) => {
           </div>
         </div>
       </div>
+
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -343,15 +349,15 @@ const Finances = ({ user }) => {
                 <div className="flex items-center">
                   <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{transaction.description}</p>
+                    <p className="text-sm font-medium text-gray-900">{transaction.description || 'Payment'}</p>
                     <p className="text-xs text-gray-500">{transaction.paymentMethod}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-gray-900">RM{transaction.amount.toFixed(2)}</p>
+                  <p className="text-sm font-semibold text-gray-900">RM{getTransactionAmount(transaction).toFixed(2)}</p>
                   <p className="text-xs text-gray-500">
-                    {transaction.paidAt ? 
-                      (transaction.paidAt.toDate ? transaction.paidAt.toDate() : new Date(transaction.paidAt))
+                    {transaction.createdAt ? 
+                      (transaction.createdAt.toDate ? transaction.createdAt.toDate() : new Date(transaction.createdAt))
                         .toLocaleDateString() : 'N/A'}
                   </p>
                 </div>
@@ -371,7 +377,7 @@ const Finances = ({ user }) => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoices</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Earnings</th>
               </tr>
             </thead>
@@ -394,7 +400,7 @@ const Finances = ({ user }) => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {project.invoiceCount}
+                    {project.transactionCount}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                     RM{project.totalEarnings.toFixed(2)}
