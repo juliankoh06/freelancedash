@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to get project data
+    function getProject(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)).data;
+    }
+    
+    // Helper function to check if user is project member
+    function isProjectMember(projectId) {
+      let project = getProject(projectId);
+      return request.auth.uid == project.freelancerId || 
+             request.auth.uid == project.clientId;
+    }
+    
+    // Projects - only freelancer and client can access
+    match /projects/{projectId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.freelancerId || 
+         request.auth.uid == resource.data.clientId);
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.freelancerId;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.freelancerId;
+    }
+    
+    // Tasks - only project members can access
+    match /tasks/{taskId} {
+      allow read, write: if request.auth != null && 
+        isProjectMember(resource.data.projectId);
+    }
+    
+    // Progress Updates - only project members can access
+    match /progress_updates/{updateId} {
+      allow read: if request.auth != null && 
+        isProjectMember(resource.data.projectId);
+      allow create, update: if request.auth != null && 
+        isProjectMember(request.resource.data.projectId);
+      allow delete: if request.auth != null && 
+        isProjectMember(resource.data.projectId);
+    }
+    
+    // Project Comments - only project members can access
+    match /project_comments/{commentId} {
+      allow read: if request.auth != null && 
+        isProjectMember(resource.data.projectId);
+      allow create: if request.auth != null && 
+        isProjectMember(request.resource.data.projectId);
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.freelancerId;
+    }
+    
+    // Transactions - only project members can access
+    match /transactions/{transactionId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.freelancerId || 
+         request.auth.uid == resource.data.clientId);
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.freelancerId;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.freelancerId;
+    }
+    
+    // Invoices - only project members can access
+    match /invoices/{invoiceId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.freelancerId || 
+         request.auth.uid == resource.data.clientId);
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.freelancerId;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.freelancerId;
+    }
+    
+    // Invitations - anyone authenticated can read, only freelancer can create
+    match /invitations/{invitationId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.freelancerId;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.freelancerId || 
+         request.auth.email == resource.data.clientEmail);
+      allow delete: if request.auth != null && 
+        request.auth.uid == resource.data.freelancerId;
+    }
+  }
+}

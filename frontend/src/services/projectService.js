@@ -23,7 +23,7 @@ class ProjectService {
       const projectWithMetadata = {
         ...sanitizedData,
         freelancerId: userId,
-        status: 'active',
+        status: sanitizedData.clientEmail ? 'pending_approval' : 'active',
         progress: 0,
         totalHours: 0,
         createdAt: new Date(),

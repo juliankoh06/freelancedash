@@ -69,9 +69,24 @@ router.get('/client-email/:clientEmail', authenticateToken, authorizeRole(['clie
   try {
     const { clientEmail } = req.params;
     
+    console.log('Client email route - req.user:', req.user);
+    console.log('Client email route - req.userData:', req.userData);
+    console.log('Requested email:', clientEmail);
+    
+    // Get email from either req.user or req.userData
+    const userEmail = req.user.email || req.userData?.email;
+    
+    if (!userEmail) {
+      return res.status(400).json({ success: false, error: 'User email not found in token' });
+    }
+    
     // Ensure client can only access their own projects
-    if (req.userData.email !== clientEmail) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (userEmail !== clientEmail) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied',
+        details: `User email (${userEmail}) does not match requested email (${clientEmail})`
+      });
     }
     
     const projectsSnapshot = await db.collection('projects')
@@ -81,8 +96,11 @@ router.get('/client-email/:clientEmail', authenticateToken, authorizeRole(['clie
       id: doc.id,
       ...doc.data()
     }));
+    
+    console.log(`Found ${projects.length} projects for ${clientEmail}`);
     res.json({ success: true, data: projects });
   } catch (error) {
+    console.error('Error in client-email route:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -94,7 +112,7 @@ router.post('/', authenticateToken, authorizeRole(['freelancer']), validateInput
       ...req.body,
       freelancerId: req.user.uid,
       freelancerName: req.userData.username,
-      status: 'active',
+      status: req.body.clientEmail ? 'pending_approval' : 'active',
       progress: 0,
       totalHours: 0,
       createdAt: new Date(),
@@ -128,10 +146,43 @@ router.put('/:id', authenticateToken, validateInput(projectUpdateSchema), async 
       return res.status(403).json({ error: 'Access denied' });
     }
     
-    await db.collection('projects').doc(id).update({
-      ...req.body,
-      updatedAt: new Date()
-    });
+    // BUSINESS RULE: Freelancers cannot edit critical fields if project has a client
+    const hasClient = projectData.clientId || projectData.clientEmail;
+    const isFreelancer = projectData.freelancerId === req.user.uid;
+    
+    if (hasClient && isFreelancer) {
+      // Define locked fields that cannot be changed
+      const lockedFields = ['title', 'hourlyRate', 'clientEmail', 'clientId', 'startDate', 'dueDate'];
+      const attemptedChanges = Object.keys(req.body).filter(key => 
+        lockedFields.includes(key) && req.body[key] !== projectData[key]
+      );
+      
+      if (attemptedChanges.length > 0) {
+        return res.status(403).json({ 
+          success: false,
+          error: 'Cannot modify locked fields',
+          message: `Projects with clients have locked fields: ${attemptedChanges.join(', ')}. These fields represent contractual agreements.`,
+          lockedFields: attemptedChanges
+        });
+      }
+      
+      // Only allow updates to non-critical fields
+      const allowedUpdates = {
+        description: req.body.description,
+        status: req.body.status,
+        progress: req.body.progress,
+        priority: req.body.priority,
+        updatedAt: new Date()
+      };
+      
+      await db.collection('projects').doc(id).update(allowedUpdates);
+    } else {
+      // No restrictions for projects without clients or if user is client
+      await db.collection('projects').doc(id).update({
+        ...req.body,
+        updatedAt: new Date()
+      });
+    }
     
     res.json({ success: true, message: 'Project updated successfully' });
   } catch (error) {
@@ -155,6 +206,17 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     if (!isOwner) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // BUSINESS RULE: Freelancers cannot delete projects with assigned clients
+    // This protects data integrity, audit trail, and client trust
+    if (projectData.freelancerId === req.user.uid && 
+        (projectData.clientId || projectData.clientEmail)) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Cannot delete project with assigned client',
+        message: 'Projects with clients cannot be deleted to maintain data integrity and audit trail. Please archive or mark as cancelled instead.'
+      });
     }
     
     await db.collection('projects').doc(id).delete();

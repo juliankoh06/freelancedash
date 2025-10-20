@@ -18,30 +18,12 @@ const Navigation = ({ user }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Verify user and role
-  React.useEffect(() => {
-    if (!user || !user.role) {
-      console.log('No user or role found, redirecting to login');
-      navigate('/login');
-      return;
-    }
-    console.log('Current user role:', user.role);
-  }, [user]);
-
-  const freelancerNavigation = [
-    { name: 'Dashboard', href: '/freelancer-dashboard', icon: Home },
+  const navigation = [
+    { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Projects', href: '/projects', icon: FolderOpen },
     { name: 'Invoices', href: '/invoices', icon: FileText },
     { name: 'Clients', href: '/clients', icon: Users },
   ];
-
-  const clientNavigation = [
-    { name: 'Project Progress', href: '/client-dashboard', icon: FolderOpen },
-    { name: 'Transactions', href: '/client-transactions', icon: FileText },
-    { name: 'Payment', href: '/client-payments', icon: FileText },
-  ];
-
-  const navigation = user?.role === 'client' ? clientNavigation : freelancerNavigation;
 
   const isActive = (path) => location.pathname === path;
 

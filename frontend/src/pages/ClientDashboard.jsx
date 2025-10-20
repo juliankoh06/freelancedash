@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, getDoc, onSnapshot, orderBy, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, onSnapshot, orderBy, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase-config';
 import apiService from '../services/api';
 import ClientApprovalView from '../components/ClientApprovalView';
@@ -33,6 +33,7 @@ const ClientDashboard = ({ user }) => {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [selectedApproval, setSelectedApproval] = useState(null);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
 
   useEffect(() => {
     if (!user || user.role !== 'client') {
@@ -41,6 +42,7 @@ const ClientDashboard = ({ user }) => {
     }
     fetchClientProjects();
     fetchPendingApprovals();
+    fetchPendingInvitations();
   }, []);
 
   const fetchFreelancerUsername = async (freelancerId) => {
@@ -120,6 +122,89 @@ const ClientDashboard = ({ user }) => {
     } catch (error) {
       console.error('Error fetching pending approvals:', error);
       setPendingApprovals([]);
+    }
+  };
+
+  const fetchPendingInvitations = async () => {
+    try {
+      if (!user?.email) {
+        setPendingInvitations([]);
+        return;
+      }
+
+      // Fetch projects that are pending approval for this client
+      const q = query(
+        collection(db, 'projects'),
+        where('clientEmail', '==', user.email),
+        where('status', '==', 'pending_approval')
+      );
+      const snapshot = await getDocs(q);
+      const invitations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setPendingInvitations(invitations);
+
+      // Fetch freelancer usernames for pending invitations
+      const freelancerIds = [...new Set(invitations.map(invitation => invitation.freelancerId).filter(Boolean))];
+      const usernamePromises = freelancerIds.map(async (freelancerId) => {
+        const username = await fetchFreelancerUsername(freelancerId);
+        return { freelancerId, username };
+      });
+      
+      const usernameResults = await Promise.all(usernamePromises);
+      const usernameMap = {};
+      usernameResults.forEach(({ freelancerId, username }) => {
+        usernameMap[freelancerId] = username;
+      });
+      
+      // Update freelancer usernames state
+      setFreelancerUsernames(prev => ({ ...prev, ...usernameMap }));
+    } catch (error) {
+      console.error('Error fetching pending invitations:', error);
+      setPendingInvitations([]);
+    }
+  };
+
+  const acceptProjectInvitation = async (projectId) => {
+    try {
+      // Update project status from pending_approval to active
+      await updateDoc(doc(db, 'projects', projectId), {
+        status: 'active',
+        clientId: user.uid,
+        updatedAt: new Date()
+      });
+
+      // Refresh data
+      await fetchClientProjects();
+      await fetchPendingInvitations();
+      
+      alert('✅ Project invitation accepted! The project is now active.');
+    } catch (error) {
+      console.error('Error accepting project invitation:', error);
+      alert('Failed to accept project invitation. Please try again.');
+    }
+  };
+
+  const rejectProjectInvitation = async (projectId) => {
+    try {
+      const confirmed = window.confirm('Are you sure you want to reject this project invitation? This action cannot be undone.');
+      if (!confirmed) return;
+
+      // Update project status to rejected
+      await updateDoc(doc(db, 'projects', projectId), {
+        status: 'rejected',
+        clientId: user.uid,
+        updatedAt: new Date()
+      });
+
+      // Refresh data
+      await fetchPendingInvitations();
+      
+      alert('Project invitation rejected.');
+    } catch (error) {
+      console.error('Error rejecting project invitation:', error);
+      alert('Failed to reject project invitation. Please try again.');
     }
   };
 
@@ -316,6 +401,58 @@ const ClientDashboard = ({ user }) => {
               </button>
             </div>
           </div>
+
+          {/* Pending Invitations Section */}
+          {pendingInvitations.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Pending Project Invitations</h2>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <p className="text-yellow-700 mb-4">
+                  You have {pendingInvitations.length} project invitation{pendingInvitations.length > 1 ? 's' : ''} waiting for your approval. 
+                  Accept these invitations to start collaborating on the projects.
+                </p>
+                <div className="space-y-4">
+                  {pendingInvitations.map((project) => (
+                    <div key={project.id} className="bg-white border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-medium text-gray-900">{project.title}</h3>
+                          <div className="mt-2 space-y-1">
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Freelancer:</span> {freelancerUsernames[project.freelancerId] || 'Unknown'}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Rate:</span> RM{project.hourlyRate}/hour
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Duration:</span> {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'} - {project.dueDate ? new Date(project.dueDate).toLocaleDateString() : 'N/A'}
+                            </p>
+                            {project.description && (
+                              <p className="text-sm text-gray-600 mt-2">{project.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3 ml-4">
+                          <button
+                            onClick={() => rejectProjectInvitation(project.id)}
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            onClick={() => acceptProjectInvitation(project.id)}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          >
+                            Accept
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Pending Approvals Section */}
           {pendingApprovals.length > 0 && (

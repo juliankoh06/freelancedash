@@ -51,6 +51,10 @@ class EmailSchedulerService {
         })
       });
       
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -61,7 +65,8 @@ class EmailSchedulerService {
         return { success: false, error: result.error };
       }
     } catch (error) {
-      console.error('❌ Error checking unpaid invoices:', error);
+      console.error('❌ Unpaid invoice check failed:', error.message);
+      // Don't throw - just log and return error
       return { success: false, error: error.message };
     }
   }

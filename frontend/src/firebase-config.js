@@ -1,34 +1,32 @@
-// Import the functions from the SDKs 
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAnalytics, isSupported as isAnalyticsSupported } from "firebase/analytics";
+import { getAnalytics, isSupported } from "firebase/analytics";
 
-// Web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCuZtq_Dh5IqKV-KCUpu1KKSd7ohphKnt8",
-  authDomain: "freelancedash-58984.firebaseapp.com",
-  projectId: "freelancedash-58984",
-  storageBucket: "freelancedash-58984.firebasestorage.app",
-  messagingSenderId: "954718646502",
-  appId: "1:954718646502:web:9adb44315483518e6b4b27",
-  measurementId: "G-38C6FRVWE8"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase
+// Initialize Firebase once
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// Optional analytics
 export let analytics = null;
-if (typeof window !== 'undefined') {
-  isAnalyticsSupported().then((supported) => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  }).catch(() => {});
+if (typeof window !== "undefined") {
+  isSupported().then(supported => {
+    if (supported) analytics = getAnalytics(app);
+  });
 }
 
 export default app;

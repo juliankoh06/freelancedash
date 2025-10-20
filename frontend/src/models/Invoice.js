@@ -21,10 +21,17 @@ export class Invoice {
     this.freelancerBusinessNumber = data.freelancerBusinessNumber || '';
     
     // Invoice Details
+    this.invoiceType = data.invoiceType || 'standard'; // standard, deposit, milestone, recurring, final
     this.status = data.status || 'draft'; // draft, sent, paid, overdue, cancelled
     this.issueDate = data.issueDate || new Date();
     this.dueDate = data.dueDate || null;
     this.paidDate = data.paidDate || null;
+    
+    // Type-specific fields
+    this.depositPercentage = data.depositPercentage || 0;
+    this.relatedInvoiceId = data.relatedInvoiceId || null; // Link to deposit/parent invoice
+    this.milestoneId = data.milestoneId || null;
+    this.recurringInvoiceId = data.recurringInvoiceId || null;
     
     // Financial Details
     this.subtotal = data.subtotal || 0;
@@ -92,7 +99,18 @@ export class Invoice {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    this.invoiceNumber = `INV-${year}${month}-${random}`;
+    
+    // Add prefix based on invoice type
+    let prefix = 'INV';
+    switch(this.invoiceType) {
+      case 'deposit': prefix = 'DEP'; break;
+      case 'milestone': prefix = 'MIL'; break;
+      case 'recurring': prefix = 'REC'; break;
+      case 'final': prefix = 'FIN'; break;
+      default: prefix = 'INV';
+    }
+    
+    this.invoiceNumber = `${prefix}-${year}${month}-${random}`;
     return this.invoiceNumber;
   }
 
@@ -115,6 +133,28 @@ export class Invoice {
     }
   }
 
+  // Get invoice type color for UI
+  getTypeColor() {
+    switch (this.invoiceType) {
+      case 'deposit': return 'purple';
+      case 'milestone': return 'blue';
+      case 'recurring': return 'teal';
+      case 'final': return 'green';
+      default: return 'gray';
+    }
+  }
+
+  // Get invoice type label
+  getTypeLabel() {
+    switch (this.invoiceType) {
+      case 'deposit': return 'Deposit';
+      case 'milestone': return 'Milestone';
+      case 'recurring': return 'Recurring';
+      case 'final': return 'Final Payment';
+      default: return 'Standard';
+    }
+  }
+
   // Get status text for UI
   getStatusText() {
     if (this.isOverdue() && this.status === 'sent') {
@@ -127,7 +167,8 @@ export class Invoice {
   validate() {
     const errors = [];
     
-    if (!this.clientId) errors.push('Client ID is required');
+    // Client ID is optional - can use clientEmail instead
+    if (!this.clientId && !this.clientEmail) errors.push('Client ID or Client Email is required');
     if (!this.freelancerId) errors.push('Freelancer ID is required');
     if (!this.projectId) errors.push('Project ID is required');
     if (!this.dueDate) errors.push('Due date is required');
@@ -143,6 +184,7 @@ export class Invoice {
   toFirebase() {
     return {
       invoiceNumber: this.invoiceNumber,
+      invoiceType: this.invoiceType,
       projectId: this.projectId,
       projectTitle: this.projectTitle,
       clientId: this.clientId,
@@ -159,6 +201,10 @@ export class Invoice {
       issueDate: this.issueDate,
       dueDate: this.dueDate,
       paidDate: this.paidDate,
+      depositPercentage: this.depositPercentage,
+      relatedInvoiceId: this.relatedInvoiceId,
+      milestoneId: this.milestoneId,
+      recurringInvoiceId: this.recurringInvoiceId,
       subtotal: this.subtotal,
       taxRate: this.taxRate,
       taxAmount: this.taxAmount,
@@ -215,6 +261,15 @@ export class Invoice {
     return invoice;
   }
 }
+
+// Invoice Types
+export const INVOICE_TYPES = {
+  STANDARD: 'standard',
+  DEPOSIT: 'deposit',
+  MILESTONE: 'milestone',
+  RECURRING: 'recurring',
+  FINAL: 'final'
+};
 
 // Invoice Statuses
 export const INVOICE_STATUSES = {

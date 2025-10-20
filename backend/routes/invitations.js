@@ -53,35 +53,56 @@ router.post('/create', async (req, res) => {
         const mailOptions = {
           from: process.env.EMAIL_USER || 'your-email@gmail.com',
           to: clientEmail,
-          subject: `Project Invitation: ${projectData.title || 'New Project'}`,
+          subject: `🎯 Project Collaboration Invitation: ${projectData.title || 'New Project'}`,
           html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2>You're Invited to a Project!</h2>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #333; text-align: center;">🎯 Project Collaboration Invitation</h2>
               <p>Hello,</p>
-              <p><strong>${freelancerData.name || 'A freelancer'}</strong> has invited you to collaborate on a project:</p>
+              <p><strong>${freelancerData.displayName || freelancerData.name || 'A freelancer'}</strong> has invited you to collaborate on a project:</p>
               
-              <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3>${projectData.title || 'New Project'}</h3>
-                <p><strong>Description:</strong> ${projectData.description || 'No description provided'}</p>
-                <p><strong>Budget:</strong> $${projectData.budget || 'Not specified'}</p>
-                <p><strong>Timeline:</strong> ${projectData.timeline || 'Not specified'}</p>
+              <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #007bff;">
+                <h3 style="margin-top: 0; color: #333;">${projectData.title || 'New Project'}</h3>
+                
+                ${projectData.description ? `
+                <p><strong>📝 Description:</strong><br>
+                ${projectData.description}</p>
+                ` : ''}
+                
+                ${projectData.hourlyRate ? `
+                <p><strong>💰 Hourly Rate:</strong> RM${projectData.hourlyRate}/hour</p>
+                ` : ''}
+                
+                ${projectData.startDate || projectData.dueDate ? `
+                <p><strong>📅 Timeline:</strong><br>
+                ${projectData.startDate ? `Start: ${new Date(projectData.startDate).toLocaleDateString()}` : ''}
+                ${projectData.startDate && projectData.dueDate ? '<br>' : ''}
+                ${projectData.dueDate ? `Due: ${new Date(projectData.dueDate).toLocaleDateString()}` : ''}</p>
+                ` : ''}
               </div>
               
               <p>To accept this invitation and start collaborating, click the button below:</p>
               
               <div style="text-align: center; margin: 30px 0;">
                 <a href="${invitationLink}" 
-                   style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
-                  Accept Invitation
+                   style="background-color: #007bff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+                  ✅ Accept Invitation
                 </a>
               </div>
               
-              <p>Or copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; color: #666;">${invitationLink}</p>
+              <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+              <p style="word-break: break-all; color: #666; font-size: 12px; background-color: #f5f5f5; padding: 10px; border-radius: 4px;">${invitationLink}</p>
               
-              <hr style="margin: 30px 0;">
+              <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+              
+              <div style="background-color: #e3f2fd; padding: 20px; border-radius: 6px; margin: 20px 0;">
+                <h4 style="margin-top: 0; color: #1976d2;">📞 Contact Information</h4>
+                <p><strong>Freelancer:</strong> ${freelancerData.displayName || freelancerData.name || 'Unknown'}</p>
+                <p><strong>Email:</strong> ${freelancerData.email || 'Not provided'}</p>
+                ${freelancerData.phone ? `<p><strong>Phone:</strong> ${freelancerData.phone}</p>` : ''}
+              </div>
+              
               <p style="color: #666; font-size: 14px;">
-                This invitation will expire in 7 days. If you have any questions, you can contact ${freelancerData.name || 'the freelancer'} directly at ${freelancerData.email || 'their email'}.
+                <strong>⏰ This invitation will expire in 7 days.</strong> If you have any questions about this project, feel free to contact the freelancer directly using the information above.
               </p>
               <p style="color: #666; font-size: 14px;">
                 If you didn't expect this invitation, you can safely ignore this email.

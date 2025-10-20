@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Clock, CheckCircle, XCircle, Filter, Search } from 'lucide-react';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from '../firebase-config';
 
 const ClientTransactions = ({ user }) => {
   const navigate = useNavigate();
@@ -15,15 +17,53 @@ const ClientTransactions = ({ user }) => {
       return;
     }
     fetchTransactions();
-  }, []);
+  }, [user]);
 
   const fetchTransactions = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/api/transactions?clientId=${user.id}`);
-      const data = await response.json();
-      setTransactions(data);
+      setLoading(true);
+      
+      const clientId = user?.uid || user?.id;
+      if (!clientId) {
+        console.error('No client ID available');
+        setTransactions([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Query Firestore directly (same as Freelancer Transactions page)
+      const transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('clientId', '==', clientId),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      const transactionsData = transactionsSnapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }));
+      
+      setTransactions(transactionsData);
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      // If orderBy fails (missing index), try without it
+      try {
+        const clientId = user?.uid || user?.id;
+        const simpleQuery = query(
+          collection(db, 'transactions'),
+          where('clientId', '==', clientId)
+        );
+        const simpleSnapshot = await getDocs(simpleQuery);
+        const simpleData = simpleSnapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          ...doc.data() 
+        }));
+        setTransactions(simpleData);
+      } catch (retryError) {
+        console.error('Retry also failed:', retryError);
+        setTransactions([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -31,10 +71,12 @@ const ClientTransactions = ({ user }) => {
 
   const getStatusIcon = (status) => {
     switch (status) {
+      case 'paid':
       case 'completed':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'pending':
         return <Clock className="w-5 h-5 text-yellow-500" />;
+      case 'overdue':
       case 'failed':
         return <XCircle className="w-5 h-5 text-red-500" />;
       default:
@@ -44,10 +86,12 @@ const ClientTransactions = ({ user }) => {
 
   const getStatusColor = (status) => {
     switch (status) {
+      case 'paid':
       case 'completed':
         return 'bg-green-100 text-green-800';
       case 'pending':
         return 'bg-yellow-100 text-yellow-800';
+      case 'overdue':
       case 'failed':
         return 'bg-red-100 text-red-800';
       default:
@@ -64,7 +108,7 @@ const ClientTransactions = ({ user }) => {
 
   const totalAmount = transactions.reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
   const completedAmount = transactions
-    .filter(t => t.status === 'completed')
+    .filter(t => t.status === 'completed' || t.status === 'paid')
     .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
 
   if (loading) {
@@ -155,9 +199,9 @@ const ClientTransactions = ({ user }) => {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="all">All Status</option>
-              <option value="completed">Completed</option>
+              <option value="paid">Paid</option>
               <option value="pending">Pending</option>
-              <option value="failed">Failed</option>
+              <option value="overdue">Overdue</option>
             </select>
           </div>
         </div>

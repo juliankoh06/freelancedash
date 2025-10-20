@@ -110,11 +110,14 @@ class Invitation {
         acceptedAt: new Date()
       });
       
-      // Update project with clientId
+      // Update project with clientId and change status to active
+      console.log('Updating project status from pending_approval to active for project:', invitation.projectId);
       await db.collection('projects').doc(invitation.projectId).update({
         clientId: clientId,
+        status: 'active', // Change from pending_approval to active
         updatedAt: new Date()
       });
+      console.log('Project status updated successfully');
       
       return { success: true, data: invitation };
     } catch (error) {

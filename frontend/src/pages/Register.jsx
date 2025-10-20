@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase-config';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -12,7 +10,7 @@ export default function Register() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'freelancer' // Default role
+    role: 'freelancer' 
   });
 
   const [error, setError] = useState('');
@@ -23,66 +21,33 @@ export default function Register() {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    const { username, email, password, confirmPassword, role } = form;
+  e.preventDefault();
+  const { username, email, password, confirmPassword, role } = form;
 
-    if (!username || !email || !password || !confirmPassword || !role) {
-      setError('All fields are required.');
-      return;
-    }
+  // validation
+  if (!username || !email || !password || !confirmPassword || !role) {
+    setError('All fields are required.');
+    return;
+  }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
+  if (password.length < 6) {
+    setError('Password must be at least 6 characters.');
+    return;
+  }
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
+  if (password !== confirmPassword) {
+    setError('Passwords do not match.');
+    return;
+  }
 
-    const registerStartTime = performance.now();
-    try {
-      console.log('📝 Starting registration process...');
-      
-      console.log('👤 Creating Firebase user account...');
-      const authStartTime = performance.now();
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      const authTime = performance.now();
-      console.log(`✅ User account created in ${(authTime - authStartTime).toFixed(2)}ms`);
-      
-      if (auth.currentUser) {
-        console.log('📝 Updating user profile...');
-        const profileStartTime = performance.now();
-        await updateProfile(auth.currentUser, { displayName: username });
-        const profileTime = performance.now();
-        console.log(`✅ Profile updated in ${(profileTime - profileStartTime).toFixed(2)}ms`);
-      }
-      
-      console.log('💾 Saving user data to Firestore...');
-      const firestoreStartTime = performance.now();
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid,
-        email,
-        username,
-        role,
-        createdAt: new Date().toISOString()
-      });
-      const firestoreTime = performance.now();
-      console.log(`✅ User data saved in ${(firestoreTime - firestoreStartTime).toFixed(2)}ms`);
-
-      const totalRegisterTime = performance.now();
-      console.log(`🏁 Total registration time: ${(totalRegisterTime - registerStartTime).toFixed(2)}ms`);
-
-      // Navigate based on role (App.js will handle fetching user data from Firebase)
-      console.log(`🧭 Navigating to ${role === 'client' ? 'client' : 'freelancer'} dashboard...`);
-      navigate(role === 'client' ? '/client-dashboard' : '/dashboard');
-    } catch (err) {
-      const errorTime = performance.now();
-      console.error(`❌ Registration failed after ${(errorTime - registerStartTime).toFixed(2)}ms:`, err);
-      setError(err.message || 'Registration failed.');
-    }
-  };
+  try {
+    await axios.post('http://localhost:5000/api/auth/register', form);
+    alert('✅ Registered successfully. You can now log in.');
+    navigate('/login');
+  } catch (err) {
+    setError(err.response?.data?.error || 'Registration failed.');
+  }
+};
 
   return (
     <div
@@ -103,7 +68,7 @@ export default function Register() {
           boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
         }}
       >
-        <h2 style={{ textAlign: 'center' }}>📝 Register</h2>
+        <h2 style={{ textAlign: 'center' }}>Register</h2>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
           <label htmlFor="username">Username</label>

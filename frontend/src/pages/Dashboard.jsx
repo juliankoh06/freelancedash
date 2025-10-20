@@ -16,6 +16,7 @@ const Dashboard = ({ user }) => {
   });
 
   const [chartData, setChartData] = useState([]);
+  const [invoices, setInvoices] = useState([]);
 
   useEffect(() => {
     if (user) {
@@ -53,6 +54,15 @@ const Dashboard = ({ user }) => {
       );
       const invoicesSnapshot = await getDocs(invoicesQuery);
       const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setInvoices(invoices); // Store invoices for display
+
+      // Fetch transactions filtered by user ID (for consistent earnings calculation)
+      const transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('freelancerId', '==', user.uid)
+      );
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      const transactions = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       // Calculate project stats
       const projectStats = {
@@ -66,35 +76,41 @@ const Dashboard = ({ user }) => {
       const invoiceStats = {
         total: invoices.length,
         paid: invoices.filter(i => i.status === 'paid').length,
-        pending: invoices.filter(i => i.status === 'pending').length,
+        pending: invoices.filter(i => i.status === 'sent').length, // Fixed: sent invoices are pending payment
         overdue: invoices.filter(i => i.status === 'overdue').length
       };
 
-      // Calculate earnings
-      const totalEarnings = invoices
-        .filter(i => i.status === 'paid')
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || invoice.amount || 0), 0);
+      // Helper function for transaction amounts (consistent with Finances page)
+      const getTransactionAmount = (transaction) => {
+        return transaction.amount || transaction.total || 0;
+      };
+
+      // Calculate earnings from TRANSACTIONS (consistent with Finances page)
+      const paidTransactions = transactions.filter(transaction => transaction.status === 'paid');
+      const totalEarnings = paidTransactions.reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
 
       const thisMonth = new Date();
-      const thisMonthEarnings = invoices
-        .filter(i => {
-          if (i.status !== 'paid' || !i.paidAt) return false;
-          const paidDate = i.paidAt.toDate ? i.paidAt.toDate() : new Date(i.paidAt);
-          return paidDate.getMonth() === thisMonth.getMonth() && 
-                 paidDate.getFullYear() === thisMonth.getFullYear();
+      const thisMonthEarnings = paidTransactions
+        .filter(transaction => {
+          if (!transaction.createdAt) return false;
+          const transactionDate = transaction.createdAt.toDate ? 
+            transaction.createdAt.toDate() : new Date(transaction.createdAt);
+          return transactionDate.getMonth() === thisMonth.getMonth() && 
+                 transactionDate.getFullYear() === thisMonth.getFullYear();
         })
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || invoice.amount || 0), 0);
+        .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
 
       const lastMonth = new Date();
       lastMonth.setMonth(lastMonth.getMonth() - 1);
-      const lastMonthEarnings = invoices
-        .filter(i => {
-          if (i.status !== 'paid' || !i.paidAt) return false;
-          const paidDate = i.paidAt.toDate ? i.paidAt.toDate() : new Date(i.paidAt);
-          return paidDate.getMonth() === lastMonth.getMonth() && 
-                 paidDate.getFullYear() === lastMonth.getFullYear();
+      const lastMonthEarnings = paidTransactions
+        .filter(transaction => {
+          if (!transaction.createdAt) return false;
+          const transactionDate = transaction.createdAt.toDate ? 
+            transaction.createdAt.toDate() : new Date(transaction.createdAt);
+          return transactionDate.getMonth() === lastMonth.getMonth() && 
+                 transactionDate.getFullYear() === lastMonth.getFullYear();
         })
-        .reduce((sum, invoice) => sum + (invoice.totalAmount || invoice.amount || 0), 0);
+        .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
 
       const finalStats = {
         projects: projectStats,
@@ -105,22 +121,33 @@ const Dashboard = ({ user }) => {
       setStats(finalStats);
 
 
-      // Calculate chart data for last 6 months
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+      // Calculate chart data for last 12 months with better formatting
       const currentDate = new Date();
-      const chartDataCalculated = months.map((month, index) => {
-        const monthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - (5 - index), 1);
-        const monthEarnings = invoices
-          .filter(i => {
-            if (i.status !== 'paid' || !i.paidAt) return false;
-            const paidDate = i.paidAt.toDate ? i.paidAt.toDate() : new Date(i.paidAt);
-            return paidDate.getMonth() === monthDate.getMonth() && 
-                   paidDate.getFullYear() === monthDate.getFullYear();
-          })
-          .reduce((sum, invoice) => sum + (invoice.amount || 0), 0);
+      const chartDataCalculated = [];
+      
+      // Generate last 12 months
+      for (let i = 11; i >= 0; i--) {
+        const monthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+        const monthName = monthDate.toLocaleDateString('en-US', { month: 'short' });
+        const year = monthDate.getFullYear();
         
-        return { month, earnings: monthEarnings };
-      });
+        const monthEarnings = paidTransactions
+          .filter(transaction => {
+            if (!transaction.createdAt) return false;
+            const transactionDate = transaction.createdAt.toDate ? 
+              transaction.createdAt.toDate() : new Date(transaction.createdAt);
+            return transactionDate.getMonth() === monthDate.getMonth() && 
+                   transactionDate.getFullYear() === monthDate.getFullYear();
+          })
+          .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
+        
+        chartDataCalculated.push({ 
+          month: monthName, 
+          year: year,
+          earnings: monthEarnings,
+          fullDate: monthDate.toISOString().split('T')[0]
+        });
+      }
       
       setChartData(chartDataCalculated);
 
@@ -170,18 +197,121 @@ const Dashboard = ({ user }) => {
           </div>
         </div>
 
-        {/* Earnings Chart */}
+
+        {/* Financial Overview */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Earnings Overview</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="earnings" fill="#8b5cf6" />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Overview</h3>
+          
+          {stats.earnings.total > 0 ? (
+            // Show enhanced chart if there's earnings data
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full"></div>
+                    <span className="text-sm text-gray-600">Monthly Earnings</span>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Total: <span className="font-semibold text-gray-900">${stats.earnings.total.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="text-sm text-gray-500">
+                  Last 12 months
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="earningsGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.6}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="month" 
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    interval={0}
+                  />
+                  <YAxis 
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                    formatter={(value, name) => [
+                      `$${value.toLocaleString()}`, 
+                      'Earnings'
+                    ]}
+                    labelFormatter={(label, payload) => {
+                      if (payload && payload[0]) {
+                        return `${payload[0].payload.month} ${payload[0].payload.year}`;
+                      }
+                      return label;
+                    }}
+                  />
+                  <Bar 
+                    dataKey="earnings" 
+                    fill="url(#earningsGradient)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={60}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            // Show engaging empty state if no earnings data
+            <div className="text-center py-16">
+              <div className="relative">
+                <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <DollarSign className="w-10 h-10 text-purple-500" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
+                  <span className="text-xs">💡</span>
+                </div>
+              </div>
+              <h4 className="text-xl font-semibold text-gray-900 mb-3">Ready to Track Your Earnings?</h4>
+              <p className="text-gray-600 mb-8 max-w-md mx-auto">
+                Create your first project, send invoices to clients, and watch your earnings grow over time.
+              </p>
+              
+              {/* Quick Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-2xl mx-auto">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                  <div className="text-3xl font-bold text-blue-600 mb-1">{stats.projects.total}</div>
+                  <div className="text-sm font-medium text-blue-800">Active Projects</div>
+                  <div className="text-xs text-blue-600 mt-1">Keep them moving!</div>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+                  <div className="text-3xl font-bold text-green-600 mb-1">{stats.invoices.total}</div>
+                  <div className="text-sm font-medium text-green-800">Total Invoices</div>
+                  <div className="text-xs text-green-600 mt-1">Track your billing</div>
+                </div>
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-6 border border-yellow-200">
+                  <div className="text-3xl font-bold text-yellow-600 mb-1">{stats.invoices.pending}</div>
+                  <div className="text-sm font-medium text-yellow-800">Awaiting Payment</div>
+                  <div className="text-xs text-yellow-600 mt-1">Follow up needed</div>
+                </div>
+              </div>
+              
+              {/* Call to Action */}
+              <div className="mt-8">
+                <div className="inline-flex items-center space-x-2 text-sm text-gray-500">
+                  <span>💼</span>
+                  <span>Start by creating a project or sending your first invoice</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
     </div>
   );

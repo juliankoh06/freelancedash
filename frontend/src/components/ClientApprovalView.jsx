@@ -4,11 +4,14 @@ import { collection, query, getDocs, where, updateDoc, doc, addDoc } from 'fireb
 import { db } from '../firebase-config';
 import invoiceService from '../services/invoiceService';
 import { INVOICE_STATUSES } from '../models/Invoice';
+import InvoicePreviewModal from './InvoicePreviewModal';
 
 const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
   const [completionRequest, setCompletionRequest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [invoicePreviewData, setInvoicePreviewData] = useState(null);
 
   useEffect(() => {
     fetchCompletionRequest();
@@ -44,41 +47,21 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
       return;
     }
     
-    setApproving(true);
-    try {
+    if (!approved) {
+      // Handle rejection immediately
+      setApproving(true);
+      try {
+        await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
+          status: 'rejected',
+          respondedAt: new Date(),
+          clientNotes: 'Work needs revision'
+        });
 
-      // Update completion request status
-      await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
-        status: approved ? 'approved' : 'rejected',
-        respondedAt: new Date(),
-        clientNotes: approved ? 'Work approved' : 'Work needs revision'
-      });
+        await updateDoc(doc(db, 'projects', projectId), {
+          status: 'active',
+          updatedAt: new Date()
+        });
 
-      // Update project status
-      await updateDoc(doc(db, 'projects', projectId), {
-        status: approved ? 'completed' : 'active',
-        updatedAt: new Date()
-      });
-
-      if (approved) {
-        // Generate invoice automatically
-        try {
-          const invoiceResult = await generateInvoice();
-          
-          // Send invoice email automatically
-          try {
-            await invoiceService.sendInvoiceEmail(invoiceResult.invoiceId);
-            alert('✅ Project approved! Invoice generated and sent to client via email.');
-          } catch (emailError) {
-            console.error('Email sending failed:', emailError);
-            alert('✅ Project approved! Invoice generated but email sending failed. You can send it manually from the invoice list.');
-          }
-        } catch (invoiceError) {
-          console.error('Invoice generation failed:', invoiceError);
-          alert('Project approved but invoice generation failed. Please check the console for details.');
-        }
-      } else {
-        // Add revision comment for freelancer
         await addDoc(collection(db, 'project_comments'), {
           projectId: projectId,
           freelancerId: completionRequest.freelancerId,
@@ -89,97 +72,155 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
           createdAt: new Date(),
           updatedAt: new Date()
         });
+        
         alert('📝 Revision requested! Freelancer has been notified to improve the work.');
+        onApprovalUpdate?.(false);
+      } catch (error) {
+        console.error('Error updating approval:', error);
+        alert(`Failed to update approval: ${error.message}`);
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
+    // For approval, show invoice preview modal
+    const invoiceData = prepareInvoiceData();
+    setInvoicePreviewData(invoiceData);
+    setShowInvoicePreview(true);
+  };
+
+  const prepareInvoiceData = () => {
+    const totalAmount = completionRequest.totalAmount || 0;
+    const totalHours = completionRequest.totalHours || 0;
+    const hourlyRate = completionRequest.hourlyRate || 0;
+
+    // Extract client name from user data or email
+    const clientName = user?.displayName || 
+                       user?.email?.split('@')[0]?.replace(/[._]/g, ' ') || 
+                       'Client';
+
+    // Use pre-filled invoice data from freelancer if available
+    const previewData = completionRequest.previewInvoiceData || {};
+
+    return {
+      projectId: projectId,
+      projectTitle: completionRequest.projectTitle || 'Untitled Project',
+      clientId: completionRequest.clientId || user?.uid || 'unknown-client',
+      clientEmail: completionRequest.clientEmail || user?.email || '',
+      clientName: clientName,
+      freelancerId: completionRequest.freelancerId || 'unknown-freelancer',
+      freelancerName: completionRequest.freelancerName || 'Freelancer',
+      freelancerEmail: completionRequest.freelancerEmail || '',
+      issueDate: new Date(),
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      status: INVOICE_STATUSES.SENT,
+      subtotal: totalAmount,
+      taxRate: previewData.taxRate || 0.06,
+      taxAmount: totalAmount * (previewData.taxRate || 0.06),
+      totalAmount: totalAmount * (1 + (previewData.taxRate || 0.06)),
+      currency: 'RM',
+      // Use freelancer's line items if provided, otherwise generate default
+      lineItems: previewData.lineItems || [
+        {
+          description: `${completionRequest.projectTitle || 'Project Work'} - ${totalHours.toFixed(1)} hours of development work`,
+          quantity: totalHours,
+          rate: hourlyRate,
+          amount: totalAmount
+        }
+      ],
+      paymentTerms: previewData.paymentTerms || 'Net 30',
+      notes: previewData.notes || `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${totalHours.toFixed(2)} hours at ${hourlyRate.toFixed(2)}/hour. Tasks completed: ${completionRequest.completedTasks || 0}/${completionRequest.totalTasks || 0}.`,
+      terms: previewData.terms || 'Payment is due within 30 days of invoice date. Thank you for your business!'
+    };
+  };
+
+  const handleConfirmInvoice = async (finalInvoiceData) => {
+    setApproving(true);
+    setShowInvoicePreview(false);
+    
+    try {
+      // Update completion request status
+      await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
+        status: 'approved',
+        respondedAt: new Date(),
+        clientNotes: 'Work approved'
+      });
+
+      // Update project status
+      await updateDoc(doc(db, 'projects', projectId), {
+        status: 'completed',
+        updatedAt: new Date()
+      });
+
+      // Generate invoice with reviewed data
+      try {
+        const result = await invoiceService.createInvoice(finalInvoiceData);
+        
+        if (result.success) {
+          console.log('✅ Invoice created successfully:', result.id);
+          
+          // Send invoice email
+          try {
+            await invoiceService.sendInvoiceEmail(result.id);
+            alert('✅ Project approved! Invoice generated and sent to client via email.');
+          } catch (emailError) {
+            console.error('Email sending failed:', emailError);
+            alert('✅ Project approved! Invoice generated but email sending failed. You can send it manually from the invoice list.');
+          }
+        } else {
+          throw new Error(result.error || 'Failed to create invoice');
+        }
+      } catch (invoiceError) {
+        console.error('Invoice generation failed:', invoiceError);
+        alert('Project approved but invoice generation failed. Please check the console for details.');
       }
 
-      onApprovalUpdate?.(approved);
+      onApprovalUpdate?.(true);
       
     } catch (error) {
-      console.error('Error updating approval:', {
-        message: error.message,
-        code: error.code,
-        stack: error.stack,
-        completionRequestId: completionRequest?.id,
-        projectId
-      });
-      alert(`Failed to update approval: ${error.message}. Please check the console for details.`);
+      console.error('Error updating approval:', error);
+      alert(`Failed to update approval: ${error.message}`);
     } finally {
       setApproving(false);
     }
   };
 
-  const generateInvoice = async () => {
+  const handleSaveDraftInvoice = async (draftInvoiceData) => {
+    setApproving(true);
+    setShowInvoicePreview(false);
+    
     try {
-      const totalAmount = completionRequest.totalAmount || 0;
-      const totalHours = completionRequest.totalHours || 0;
-      const hourlyRate = completionRequest.hourlyRate || 0;
-      
-      console.log('Creating invoice with data:', {
-        totalAmount,
-        totalHours,
-        hourlyRate,
-        projectTitle: completionRequest.projectTitle,
-        clientEmail: completionRequest.clientEmail,
-        userEmail: user?.email
+      // Update completion request and project status
+      await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
+        status: 'approved',
+        respondedAt: new Date(),
+        clientNotes: 'Work approved'
       });
 
-      const invoiceData = {
-        projectId: projectId,
-        projectTitle: completionRequest.projectTitle || 'Untitled Project',
-        clientId: completionRequest.clientId || 'unknown-client',
-        clientEmail: completionRequest.clientEmail || user?.email || '',
-        clientName: 'Client', // You might want to fetch this from user data
-        freelancerId: completionRequest.freelancerId || 'unknown-freelancer',
-        freelancerName: completionRequest.freelancerName || 'Freelancer',
-        freelancerEmail: '', // You might want to fetch this
-        issueDate: new Date(),
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        status: INVOICE_STATUSES.SENT,
-        subtotal: totalAmount,
-        taxRate: 0.06, // 6% GST
-        taxAmount: totalAmount * 0.06,
-        totalAmount: totalAmount * 1.06,
-        currency: 'RM',
-        lineItems: [
-          {
-            description: `Project: ${completionRequest.projectTitle || 'Untitled Project'}`,
-            quantity: 1,
-            rate: totalAmount,
-            amount: totalAmount
-          }
-        ],
-        paymentTerms: 'Net 30',
-        notes: `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${(totalHours || 0).toFixed(2)} hours.`,
-        terms: 'Payment is due within 30 days of invoice date. Thank you for your business!'
-      };
+      await updateDoc(doc(db, 'projects', projectId), {
+        status: 'completed',
+        updatedAt: new Date()
+      });
 
-      // Add line item for hours if we have hourly rate data
-      if (totalHours > 0 && hourlyRate > 0) {
-        invoiceData.lineItems.push({
-          description: `Total hours worked: ${(totalHours || 0).toFixed(2)}h`,
-          quantity: totalHours,
-          rate: hourlyRate,
-          amount: totalHours * hourlyRate
-        });
-      }
-
-      console.log('Invoice data prepared:', invoiceData);
-
-      const result = await invoiceService.createInvoice(invoiceData);
+      // Save invoice as draft
+      const draftData = { ...draftInvoiceData, status: INVOICE_STATUSES.DRAFT };
+      const result = await invoiceService.createInvoice(draftData);
       
       if (result.success) {
-        console.log('✅ Invoice created successfully:', result.id);
-        console.log('Invoice data saved:', invoiceData);
-        return { success: true, invoiceId: result.id, invoice: result.invoice };
+        alert('✅ Project approved! Invoice saved as draft. You can edit and send it from the invoice list.');
+        onApprovalUpdate?.(true);
       } else {
-        console.error('Invoice creation failed:', result.error);
-        throw new Error(result.error || 'Failed to create invoice');
+        throw new Error(result.error || 'Failed to save draft invoice');
       }
     } catch (error) {
-      console.error('Error generating invoice:', error);
-      throw error;
+      console.error('Error saving draft invoice:', error);
+      alert(`Failed to save draft invoice: ${error.message}`);
+    } finally {
+      setApproving(false);
     }
   };
+
 
   if (loading) {
     return (
@@ -200,7 +241,18 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <>
+      {showInvoicePreview && invoicePreviewData && (
+        <InvoicePreviewModal
+          invoiceData={invoicePreviewData}
+          onConfirm={handleConfirmInvoice}
+          onCancel={() => setShowInvoicePreview(false)}
+          onSaveDraft={handleSaveDraftInvoice}
+          readOnly={true}
+        />
+      )}
+
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Project Completion Approval</h3>
         <div className="flex items-center space-x-2 text-sm text-gray-500">
@@ -290,6 +342,7 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

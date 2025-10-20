@@ -57,7 +57,7 @@ const AddProjectModal = ({ onCreated }) => {
         dueDate: form.dueDate,
         hourlyRate: Number(form.hourlyRate),
         freelancerId: currentUser.uid, // Add the user ID to associate project with user
-        status: 'active', // Set default status
+        status: form.clientEmail ? 'pending_approval' : 'active', // Set status based on client email
         clientEmail: form.clientEmail || null // Add client email if provided
       };
       
@@ -89,7 +89,7 @@ const AddProjectModal = ({ onCreated }) => {
               currentUser.email
             );
             
-            alert(`✅ Project created! Invitation sent to ${form.clientEmail}`);
+            alert(`✅ Project created and sent for client approval! Invitation sent to ${form.clientEmail}. The project will be available once the client accepts the invitation.`);
           } else {
             console.warn('Failed to create invitation:', invitationResult.error);
             alert('✅ Project created, but invitation could not be sent. You can invite the client manually later.');

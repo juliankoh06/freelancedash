@@ -2,8 +2,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
 const cors = require('cors');
-require('./firebase-config'); 
-require('dotenv').config();
+require('./firebase-config');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -29,6 +28,7 @@ const freelancerRoutes = require('./routes/freelancer');
 const paymentRoutes = require('./routes/payments');
 const invitationRoutes = require('./routes/invitations');
 const emailRoutes = require('./routes/email');
+const transactionRoutes = require('./routes/transactions');
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -38,6 +38,7 @@ app.use('/api/freelancer', freelancerRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Error handling middleware
 app.use((error, req, res, next) => {

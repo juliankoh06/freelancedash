@@ -12,6 +12,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+
 // Send invoice email
 router.post('/send-invoice', async (req, res) => {
   try {
@@ -59,7 +60,20 @@ router.post('/send-invoice', async (req, res) => {
     });
   } catch (error) {
     console.error('Error sending invoice email:', error);
-    res.status(500).json({ success: false, error: error.message });
+    
+    // Provide specific error messages based on error type
+    let errorMessage = error.message;
+    if (error.message.includes('535-5.7.8')) {
+      errorMessage = 'Email authentication failed. Please check your Gmail credentials and App Password configuration.';
+    } else if (error.message.includes('Invalid login')) {
+      errorMessage = 'Invalid Gmail credentials. Please verify your email and App Password.';
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage,
+      details: 'Check server console for detailed error information'
+    });
   }
 });
 
@@ -82,14 +96,20 @@ router.post('/send-followup', async (req, res) => {
 
     const result = await transporter.sendMail(mailOptions);
     
-    // Log follow-up email
-    await db.collection('invoice_followups').add({
-      invoiceId,
-      type: followUpType,
-      sentAt: new Date(),
-      emailMessageId: result.messageId,
-      clientEmail
-    });
+    // Log follow-up email (optional - skip if Firebase not configured)
+    try {
+      if (db) {
+        await db.collection('invoice_followups').add({
+          invoiceId,
+          type: followUpType,
+          sentAt: new Date(),
+          emailMessageId: result.messageId,
+          clientEmail
+        });
+      }
+    } catch (logError) {
+      console.warn('⚠️ Could not log follow-up email to Firestore:', logError.message);
+    }
 
     res.json({ 
       success: true, 
@@ -122,15 +142,21 @@ router.post('/send-invitation', async (req, res) => {
 
     const result = await transporter.sendMail(mailOptions);
     
-    // Log invitation email
-    await db.collection('email_logs').add({
-      type: 'invitation',
-      sentAt: new Date(),
-      emailMessageId: result.messageId,
-      clientEmail,
-      projectTitle,
-      freelancerName
-    });
+    // Log invitation email (optional - skip if Firebase not configured)
+    try {
+      if (db) {
+        await db.collection('email_logs').add({
+          type: 'invitation',
+          sentAt: new Date(),
+          emailMessageId: result.messageId,
+          clientEmail,
+          projectTitle,
+          freelancerName
+        });
+      }
+    } catch (logError) {
+      console.warn('⚠️ Could not log invitation email to Firestore:', logError.message);
+    }
 
     res.json({ 
       success: true, 
@@ -157,15 +183,21 @@ router.post('/send-progress-update', async (req, res) => {
 
     const result = await transporter.sendMail(mailOptions);
     
-    // Log notification
-    await db.collection('notifications').add({
-      projectId,
-      type: 'progress_update',
-      sentAt: new Date(),
-      emailMessageId: result.messageId,
-      clientEmail,
-      updateData
-    });
+    // Log notification (optional - skip if Firebase not configured)
+    try {
+      if (db) {
+        await db.collection('notifications').add({
+          projectId,
+          type: 'progress_update',
+          sentAt: new Date(),
+          emailMessageId: result.messageId,
+          clientEmail,
+          updateData
+        });
+      }
+    } catch (logError) {
+      console.warn('⚠️ Could not log notification to Firestore:', logError.message);
+    }
 
     res.json({ 
       success: true, 
@@ -183,6 +215,22 @@ router.post('/check-unpaid-invoices', async (req, res) => {
   try {
     const { freelancerId } = req.body;
     
+    if (!freelancerId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Freelancer ID is required' 
+      });
+    }
+
+    // Check if Firebase is properly initialized
+    if (!db) {
+      console.error('Firebase database not initialized');
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Database service unavailable. Please check Firebase configuration.' 
+      });
+    }
+    
     // Get all pending invoices for the freelancer
     const invoicesQuery = await db.collection('invoices')
       .where('freelancerId', '==', freelancerId)
@@ -194,7 +242,14 @@ router.post('/check-unpaid-invoices', async (req, res) => {
 
     invoicesQuery.forEach(doc => {
       const invoice = { id: doc.id, ...doc.data() };
-      const dueDate = invoice.dueDate.toDate();
+      
+      // Safely handle dueDate
+      if (!invoice.dueDate) {
+        console.warn(`Invoice ${invoice.id} has no due date, skipping`);
+        return;
+      }
+      
+      const dueDate = invoice.dueDate.toDate ? invoice.dueDate.toDate() : new Date(invoice.dueDate);
       const daysPastDue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
 
       if (daysPastDue > 0) {
@@ -223,7 +278,17 @@ router.post('/check-unpaid-invoices', async (req, res) => {
     });
   } catch (error) {
     console.error('Error checking unpaid invoices:', error);
-    res.status(500).json({ success: false, error: error.message });
+    
+    // Provide more specific error messages
+    let errorMessage = error.message;
+    if (error.message.includes('Project Id')) {
+      errorMessage = 'Firebase authentication error. Please ensure service account credentials are properly configured.';
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage 
+    });
   }
 });
 

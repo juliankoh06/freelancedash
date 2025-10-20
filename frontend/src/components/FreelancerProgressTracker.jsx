@@ -474,8 +474,14 @@ const FreelancerProgressTracker = ({ project, onClose }) => {
                 <div className="bg-white border border-gray-200 rounded-lg p-6">
                   <div className="text-center py-8 text-gray-500">
                     <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                    <p>File upload functionality will be implemented here</p>
-                    <p className="text-sm">Upload project deliverables and documents</p>
+                    <p>File upload functionality is now available in Progress Updates</p>
+                    <p className="text-sm">Go to the "Progress Updates" tab to attach files to your updates</p>
+                    <button
+                      onClick={() => setActiveTab('updates')}
+                      className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Go to Progress Updates
+                    </button>
                   </div>
                 </div>
               </div>

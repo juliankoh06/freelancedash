@@ -137,6 +137,30 @@ class InvoiceService {
     }
   }
 
+  // Get invoices for a specific project
+  async getProjectInvoices(projectId) {
+    try {
+      console.log('🔍 Fetching invoices for project:', projectId);
+
+      const q = query(
+        collection(db, this.collectionName),
+        where('projectId', '==', projectId),
+        orderBy('createdAt', 'desc')
+      );
+
+      const snapshot = await getDocs(q);
+      const invoices = snapshot.docs.map(doc =>
+        Invoice.fromFirebase(doc)
+      );
+
+      console.log('✅ Fetched project invoices:', invoices.length);
+      return { success: true, invoices };
+    } catch (error) {
+      console.error('❌ Error fetching project invoices:', error);
+      throw error;
+    }
+  }
+
   // Get invoices for a client
   async getClientInvoices(clientId) {
     try {
