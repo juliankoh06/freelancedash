@@ -49,7 +49,8 @@ export const projectsAPI = {
   async createProject(projectData) {
     try {
       const response = await apiService.createProject(projectData);
-      return response.data;
+      console.log('📦 Raw API response:', response);
+      return response;
     } catch (error) {
       console.error('Error creating project:', error);
       throw error;

@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow authenticated users to upload and read progress updates
+    match /progress_updates/{projectId}/{fileName} {
+      allow read: if true; // Allow anyone to read (or restrict as needed)
+      allow write: if request.auth != null; // Only authenticated users can upload
+    }
+    
+    // Allow uploads folder access
+    match /uploads/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Default deny for everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -76,11 +76,26 @@ const transactionSchema = Joi.object({
 // User validation schemas
 const userSchema = Joi.object({
   username: Joi.string().min(3).max(50).required(),
+  fullName: Joi.string().min(2).max(100).required(),
   email: Joi.string().email().required(),
+  password: Joi.string().min(8).required(),
   role: Joi.string().valid('freelancer', 'client').required(),
   company: Joi.string().max(100).optional(),
-  phone: Joi.string().max(20).optional(),
-  address: Joi.string().max(200).optional()
+  address: Joi.string().max(500).optional(),
+  country: Joi.string().max(100).optional()
+});
+
+const userRegistrationSchema = Joi.object({
+  username: Joi.string().min(3).max(50).required(),
+  fullName: Joi.string().min(2).max(100).required(),
+  email: Joi.string().email().required(),
+  password: Joi.string().min(8).required(),
+  confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
+  role: Joi.string().valid('freelancer', 'client').required(),
+  company: Joi.string().max(100).optional(),
+  address: Joi.string().max(500).optional(),
+  country: Joi.string().max(100).optional(),
+  termsAccepted: Joi.boolean().valid(true).required()
 });
 
 module.exports = {
@@ -90,5 +105,6 @@ module.exports = {
   taskUpdateSchema,
   invoiceSchema,
   transactionSchema,
-  userSchema
+  userSchema,
+  userRegistrationSchema
 };

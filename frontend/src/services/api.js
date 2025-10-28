@@ -10,6 +10,15 @@ class APIService {
     this.token = token;
   }
 
+  // Clear authentication token
+  clearToken() {
+    this.token = null;
+    if (this.tokenRefreshInterval) {
+      clearInterval(this.tokenRefreshInterval);
+      this.tokenRefreshInterval = null;
+    }
+  }
+
   // Get headers with authentication
   getHeaders() {
     const headers = {
@@ -35,6 +44,42 @@ class APIService {
       const response = await fetch(url, config);
       
       if (!response.ok) {
+        // Handle 401 Unauthorized - token might be expired
+        if (response.status === 401) {
+          console.log('🔄 Received 401, attempting token refresh...');
+          
+          // Try to refresh the token if we have a current user
+          const { auth } = require('../firebase-config');
+          const currentUser = auth.currentUser;
+          
+          if (currentUser) {
+            try {
+              const newToken = await currentUser.getIdToken(true);
+              this.setToken(newToken);
+              
+              // Retry the request with the new token
+              const retryConfig = {
+                ...config,
+                headers: this.getHeaders(),
+              };
+              
+              const retryResponse = await fetch(url, retryConfig);
+              if (retryResponse.ok) {
+                return await retryResponse.json();
+              }
+            } catch (refreshError) {
+              console.error('❌ Token refresh failed:', refreshError);
+              // Redirect to login if token refresh fails
+              window.location.href = '/login';
+              return;
+            }
+          } else {
+            // No current user, redirect to login
+            window.location.href = '/login';
+            return;
+          }
+        }
+        
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
@@ -225,6 +270,43 @@ class APIService {
   // Freelancer API
   async getFreelancerStats(freelancerId) {
     return this.request(`/freelancer/stats?freelancerId=${freelancerId}`);
+  }
+
+  // OTP Authentication API
+  async loginWithPassword(email, password) {
+    return this.request('/auth/login-with-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  }
+
+  async verifyOTP(email, otp, password) {
+    return this.request('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, password }),
+    });
+  }
+
+  // Password Reset API
+  async forgotPassword(email) {
+    return this.request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async verifyResetToken(token, email) {
+    return this.request('/auth/verify-reset-token', {
+      method: 'POST',
+      body: JSON.stringify({ token, email }),
+    });
+  }
+
+  async resetPassword(token, email, newPassword) {
+    return this.request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, email, newPassword }),
+    });
   }
 }
 

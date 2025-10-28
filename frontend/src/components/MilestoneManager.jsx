@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, CheckCircle, Clock, DollarSign, Calendar, AlertCircle } from 'lucide-react';
-import { updateDoc, doc } from 'firebase/firestore';
+import { updateDoc, doc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase-config';
 import invoiceService from '../services/invoiceService';
 import { INVOICE_TYPES, INVOICE_STATUSES } from '../models/Invoice';
 
-const MilestoneManager = ({ project, onUpdate, currentUser }) => {
+const MilestoneManager = ({ project, onUpdate, currentUser, contractStatus }) => {
   const [milestones, setMilestones] = useState(project.milestones || []);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState(null);
@@ -17,19 +17,36 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
     dueDate: '',
     status: 'pending'
   });
+  
+  // Check if contract is active (both parties signed)
+  const isContractActive = contractStatus === 'active';
+  // Can edit milestones only if contract NOT signed yet
+  const canEditMilestones = !isContractActive;
 
   useEffect(() => {
     setMilestones(project.milestones || []);
   }, [project.milestones]);
 
   const handleAddMilestone = async () => {
+    // Validate milestone percentage doesn't exceed 100%
+    const newPercentage = parseInt(formData.percentage) || 0;
+    const currentTotal = milestones.reduce((sum, m) => sum + (m.percentage || 0), 0);
+    
+    if (currentTotal + newPercentage > 100) {
+      alert(`Total milestone percentage cannot exceed 100%. Current total: ${currentTotal}%, trying to add: ${newPercentage}%`);
+      return;
+    }
+
     const newMilestone = {
       id: Date.now().toString(),
       ...formData,
       status: 'pending',
       invoiceId: null,
       completedAt: null,
-      createdAt: new Date()
+      createdAt: new Date(),
+      requiresClientApproval: true,
+      clientApproved: false,
+      clientApprovedAt: null
     };
 
     const updatedMilestones = [...milestones, newMilestone];
@@ -91,64 +108,87 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
   };
 
   const handleCompleteMilestone = async (milestone) => {
-    if (!window.confirm(`Mark "${milestone.title}" as complete and generate invoice?`)) return;
+    // Check if milestone requires client approval
+    if (milestone.requiresClientApproval && !milestone.clientApproved) {
+      alert('This milestone requires client approval before completion. Please wait for client approval.');
+      return;
+    }
+
+    // Validate milestone completion with evidence
+    const hasEvidence = milestone.evidence && milestone.evidence.length > 0;
+    if (!hasEvidence) {
+      const evidence = prompt('Please provide evidence of milestone completion (description of work done):');
+      if (!evidence || evidence.trim() === '') {
+        alert('Evidence of completion is required to mark milestone as complete.');
+        return;
+      }
+    }
     
     try {
-      // Create milestone invoice
+      // Update milestone status to completed
+      const updatedMilestones = milestones.map(m => 
+        m.id === milestone.id 
+          ? { 
+              ...m, 
+              status: 'completed', 
+              completedAt: new Date(),
+              evidence: milestone.evidence || prompt('Evidence of completion:'),
+              completedBy: currentUser?.uid
+            }
+          : m
+      );
+
+      await updateDoc(doc(db, 'projects', project.id), {
+        milestones: updatedMilestones,
+        updatedAt: new Date()
+      });
+
+      setMilestones(updatedMilestones);
+      alert('✅ Milestone marked as completed! Invoice will be created.');
+
+      // Auto-generate invoice for completed milestone
       const invoiceData = {
-        invoiceType: INVOICE_TYPES.MILESTONE,
         projectId: project.id,
         projectTitle: project.title,
-        clientId: project.clientId,
-        clientEmail: project.clientEmail,
-        clientName: project.clientName || 'Client',
-        freelancerId: currentUser?.uid,
-        freelancerName: currentUser?.displayName || 'Freelancer',
-        freelancerEmail: currentUser?.email || '',
-        issueDate: new Date(),
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        status: INVOICE_STATUSES.DRAFT,
         milestoneId: milestone.id,
-        subtotal: milestone.amount,
-        taxRate: 0.06,
-        taxAmount: milestone.amount * 0.06,
-        totalAmount: milestone.amount * 1.06,
+        milestoneName: milestone.title,
+        freelancerId: currentUser?.uid,
+        freelancerName: currentUser?.displayName || currentUser?.email,
+        freelancerEmail: currentUser?.email,
+        clientId: project.clientId,
+        clientName: project.clientName,
+        clientEmail: project.clientEmail,
+        invoiceNumber: `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        issueDate: new Date(),
+        dueDate: milestone.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         currency: 'RM',
-        lineItems: [
-          {
-            description: `Milestone: ${milestone.title}`,
-            quantity: 1,
-            rate: milestone.amount,
-            amount: milestone.amount
-          }
-        ],
+        lineItems: [{
+          description: `${milestone.title} - ${milestone.description || 'Milestone payment'}`,
+          quantity: 1,
+          rate: milestone.amount,
+          amount: milestone.amount
+        }],
+        subtotal: milestone.amount,
+        taxRate: 0,
+        taxAmount: 0,
+        totalAmount: milestone.amount,
+        status: 'pending',
         paymentTerms: 'Net 30',
-        notes: `${milestone.percentage}% of project completed. ${milestone.description || ''}`,
-        terms: 'Payment is due within 30 days of invoice date.'
+        notes: `Invoice for milestone: ${milestone.title} (${milestone.percentage}% of project)`,
+        terms: 'Payment is due by the specified due date.',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        type: 'milestone',
+        autoGenerated: true
       };
 
-      const result = await invoiceService.createInvoice(invoiceData);
-      
-      if (result.success) {
-        // Update milestone status
-        const updatedMilestones = milestones.map(m => 
-          m.id === milestone.id 
-            ? { ...m, status: 'invoiced', invoiceId: result.id, completedAt: new Date() }
-            : m
-        );
-        
-        await updateDoc(doc(db, 'projects', project.id), {
-          milestones: updatedMilestones,
-          updatedAt: new Date()
-        });
-        
-        setMilestones(updatedMilestones);
-        alert('✅ Milestone completed and invoice created!');
-        onUpdate?.();
-      }
+      await addDoc(collection(db, 'invoices'), invoiceData);
+      console.log(`✅ Created invoice for milestone: ${milestone.title}`);
+
+      onUpdate?.();
     } catch (error) {
       console.error('Error completing milestone:', error);
-      alert('Failed to complete milestone and generate invoice');
+      alert('Failed to complete milestone');
     }
   };
 
@@ -178,12 +218,35 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
     setShowAddForm(true);
   };
 
+  const handleClientApproveMilestone = async (milestone) => {
+    try {
+      const updatedMilestones = milestones.map(m => 
+        m.id === milestone.id 
+          ? { ...m, clientApproved: true, clientApprovedAt: new Date() }
+          : m
+      );
+      
+      await updateDoc(doc(db, 'projects', project.id), {
+        milestones: updatedMilestones,
+        updatedAt: new Date()
+      });
+      
+      setMilestones(updatedMilestones);
+      alert('✅ Milestone approved by client!');
+      onUpdate?.();
+    } catch (error) {
+      console.error('Error approving milestone:', error);
+      alert('Failed to approve milestone');
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800';
       case 'invoiced': return 'bg-blue-100 text-blue-800';
       case 'paid': return 'bg-purple-100 text-purple-800';
       case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'client_approval_pending': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -208,16 +271,22 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">Project Milestones</h3>
-          <p className="text-sm text-gray-600">Track and invoice project milestones</p>
+          <p className="text-sm text-gray-600">
+            Milestones are defined in the contract and cannot be modified
+          </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Milestone
-        </button>
       </div>
+      
+      {/* Contract Locked Warning */}
+      {isContractActive && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start">
+          <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-yellow-800">
+            <strong>Contract Signed:</strong> Milestones are now locked as per the signed contract. 
+            You can only update progress and mark milestones as complete.
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       {milestones.length > 0 && (
@@ -336,16 +405,10 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
 
       {/* Milestones List */}
       {milestones.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="text-center py-12 bg-gray-50 rounded-lg">
           <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600 mb-4">No milestones defined yet</p>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add First Milestone
-          </button>
+          <p className="text-gray-600 mb-2">No milestones defined in the contract</p>
+          <p className="text-sm text-gray-500">Milestones are created automatically from the signed contract</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -381,29 +444,13 @@ const MilestoneManager = ({ project, onUpdate, currentUser }) => {
                 </div>
                 <div className="flex items-center space-x-2 ml-4">
                   {milestone.status === 'pending' && (
-                    <>
-                      <button
-                        onClick={() => handleCompleteMilestone(milestone)}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-md transition-colors"
-                        title="Complete & Invoice"
-                      >
-                        <CheckCircle className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => startEdit(milestone)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                        title="Edit"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteMilestone(milestone.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </>
+                    <button
+                      onClick={() => handleCompleteMilestone(milestone)}
+                      className="p-2 text-green-600 hover:bg-green-50 rounded-md transition-colors"
+                      title="Mark as Complete"
+                    >
+                      <CheckCircle className="w-5 h-5" />
+                    </button>
                   )}
                   {milestone.status === 'invoiced' && milestone.invoiceId && (
                     <span className="text-xs text-blue-600">

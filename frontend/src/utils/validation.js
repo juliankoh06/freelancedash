@@ -25,7 +25,7 @@ export const projectValidation = {
     if (!data.hourlyRate || data.hourlyRate <= 0) {
       errors.hourlyRate = 'Hourly rate must be greater than 0';
     } else if (data.hourlyRate > 10000) {
-      errors.hourlyRate = 'Hourly rate seems unrealistic (max $10,000)';
+      errors.hourlyRate = 'Hourly rate seems unrealistic (max RM10,000)';
     }
     
     // Optional fields validation
@@ -73,7 +73,7 @@ export const projectValidation = {
     }
     
     if (data.hourlyRate && (data.hourlyRate <= 0 || data.hourlyRate > 10000)) {
-      errors.hourlyRate = 'Hourly rate must be between $0 and $10,000';
+      errors.hourlyRate = 'Hourly rate must be between RM0 and RM10,000';
     }
     
     if (data.progress !== undefined) {

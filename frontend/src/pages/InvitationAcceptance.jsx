@@ -94,24 +94,37 @@ const InvitationAcceptance = () => {
   const handleExistingUserAcceptance = async (user) => {
     try {
       console.log('🔍 User already logged in, checking invitation acceptance...');
+      console.log('👤 Current user email:', user.email);
+      console.log('📧 Invitation email:', invitation.clientEmail);
       
       // Check if the logged-in user's email matches the invitation email
       if (user.email === invitation.clientEmail) {
         // Same user, can accept directly
+        console.log('✅ Email matches, accepting invitation...');
         const acceptResult = await invitationService.acceptInvitation(token, user.uid);
         
+        console.log('📊 Accept result:', acceptResult);
+        
         if (acceptResult.success) {
-          alert('✅ Invitation accepted successfully! You will be redirected to your dashboard.');
-          navigate('/client-dashboard');
+          // Check if contract signature is required
+          const responseData = acceptResult.data;
+          console.log('📋 Response data:', responseData);
+          
+          // Always redirect to Client Invitations page where they can view and sign contracts
+          console.log('✅ Invitation accepted, redirecting to invitations page to review contract');
+          alert('✅ Invitation accepted successfully! Please review and sign the contract.');
+          navigate('/client-invitations');
         } else {
+          console.error('❌ Accept failed:', acceptResult.error);
           setError(acceptResult.error);
         }
       } else {
         // Different user, show choice
+        console.log('⚠️ Email mismatch, showing auth choice');
         setShowAuthChoice(true);
       }
     } catch (error) {
-      console.error('Error handling existing user acceptance:', error);
+      console.error('❌ Error handling existing user acceptance:', error);
       setError('Failed to process invitation for logged-in user');
     }
   };
@@ -148,8 +161,10 @@ const InvitationAcceptance = () => {
       const acceptResult = await invitationService.acceptInvitation(token, user.uid);
       
       if (acceptResult.success) {
-        // Redirect to client dashboard
-        navigate('/client-dashboard');
+        // Check if contract signature is required
+        const responseData = acceptResult.data;
+        alert('✅ Invitation accepted successfully! Please review and sign the contract.');
+        navigate('/client-invitations');
       } else {
         setError(acceptResult.error);
       }
@@ -176,8 +191,10 @@ const InvitationAcceptance = () => {
       const acceptResult = await invitationService.acceptInvitation(token, user.uid);
       
       if (acceptResult.success) {
-        // Redirect to client dashboard
-        navigate('/client-dashboard');
+        // Check if contract signature is required
+        const responseData = acceptResult.data;
+        alert('✅ Invitation accepted successfully! Please review and sign the contract.');
+        navigate('/client-invitations');
       } else {
         setError(acceptResult.error);
       }
@@ -236,8 +253,8 @@ const InvitationAcceptance = () => {
       const acceptResult = await invitationService.acceptInvitation(token, currentUser.uid);
       
       if (acceptResult.success) {
-        alert('✅ Invitation accepted successfully! You will be redirected to your dashboard.');
-        navigate('/client-dashboard');
+        alert('✅ Invitation accepted successfully! Please review and sign the contract.');
+        navigate('/client-invitations');
       } else {
         setError(acceptResult.error);
       }

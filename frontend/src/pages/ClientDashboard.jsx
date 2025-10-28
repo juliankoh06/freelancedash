@@ -16,6 +16,7 @@ import {
   Eye,
   Send,
   ArrowLeft,
+  ArrowRight,
   X
 } from 'lucide-react';
 
@@ -34,6 +35,9 @@ const ClientDashboard = ({ user }) => {
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [updateComments, setUpdateComments] = useState({});
+  const [expandedUpdates, setExpandedUpdates] = useState({});
+  const [newUpdateComments, setNewUpdateComments] = useState({});
 
   useEffect(() => {
     if (!user || user.role !== 'client') {
@@ -282,6 +286,9 @@ const ClientDashboard = ({ user }) => {
       }));
       setProgressUpdates(progressData);
 
+      // Fetch comments for each progress update
+      await fetchUpdateComments(progressData);
+
       // Calculate time entries from tasks
       const timeEntriesData = tasksData
         .filter(task => task.timeSpent > 0)
@@ -299,16 +306,51 @@ const ClientDashboard = ({ user }) => {
     }
   };
 
+  const fetchUpdateComments = async (updates) => {
+    try {
+      const commentsPromises = updates.map(async (update) => {
+        // Now we can use server-side ordering since we have the index
+        const commentsQuery = query(
+          collection(db, 'update_comments'),
+          where('updateId', '==', update.id),
+          orderBy('createdAt', 'asc')
+        );
+        const commentsSnapshot = await getDocs(commentsQuery);
+        const comments = commentsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        return { updateId: update.id, comments };
+      });
+
+      const commentsResults = await Promise.all(commentsPromises);
+      const commentsMap = {};
+      commentsResults.forEach(({ updateId, comments }) => {
+        commentsMap[updateId] = comments;
+      });
+      setUpdateComments(commentsMap);
+    } catch (error) {
+      console.error('Error fetching update comments:', error);
+    }
+  };
+
+  const toNumber = (value) => {
+    const numeric = typeof value === 'string' ? parseFloat(value) : value;
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
   const calculateProjectStats = () => {
     if (!selectedProject) return {};
     
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(task => task.status === 'completed').length;
     const inProgressTasks = tasks.filter(task => task.status === 'in-progress').length;
-    const totalHours = tasks.reduce((sum, task) => sum + (task.timeSpent || 0), 0);
-    const estimatedHours = tasks.reduce((sum, task) => sum + (task.estimatedHours || 0), 0);
-    const currentCost = totalHours * (selectedProject.hourlyRate || 0);
-    const estimatedCost = estimatedHours * (selectedProject.hourlyRate || 0);
+    const totalHours = tasks.reduce((sum, task) => sum + toNumber(task.timeSpent || 0), 0);
+    const estimatedHours = tasks.reduce((sum, task) => sum + toNumber(task.estimatedHours || 0), 0);
+    const hourlyRate = toNumber(selectedProject.hourlyRate || 0);
+    const currentCost = totalHours * hourlyRate;
+    const estimatedCost = estimatedHours * hourlyRate;
 
     return {
       totalTasks,
@@ -326,23 +368,87 @@ const ClientDashboard = ({ user }) => {
     if (!newComment.trim() || !selectedProject) return;
 
     try {
+      // Ensure we have valid client identification
+      const clientId = selectedProject.clientId || user?.uid || null;
+      const clientEmail = selectedProject.clientEmail || user?.email || null;
+      
+      if (!clientId && !clientEmail) {
+        alert('Unable to identify client. Please refresh the page and try again.');
+        return;
+      }
+
       const commentData = {
         projectId: selectedProject.id,
-        clientId: selectedProject.clientId,
-        clientEmail: selectedProject.clientEmail,
+        clientId: clientId,
+        clientEmail: clientEmail,
         comment: newComment.trim(),
         type: 'client_feedback',
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      await addDoc(collection(db, 'project_comments'), commentData);
+      // Remove undefined fields to prevent Firebase errors
+      const cleanCommentData = Object.fromEntries(
+        Object.entries(commentData).filter(([_, value]) => value !== undefined)
+      );
+
+      await addDoc(collection(db, 'project_comments'), cleanCommentData);
       setNewComment('');
       alert('Comment sent successfully!');
     } catch (error) {
       console.error('Error sending comment:', error);
       alert('Failed to send comment. Please try again.');
     }
+  };
+
+  const handleSendUpdateComment = async (updateId) => {
+    const comment = newUpdateComments[updateId];
+    if (!comment?.trim() || !selectedProject) return;
+
+    try {
+      // Ensure we have valid client identification
+      const clientId = selectedProject.clientId || user?.uid || null;
+      const clientEmail = selectedProject.clientEmail || user?.email || null;
+      
+      if (!clientId && !clientEmail) {
+        alert('Unable to identify client. Please refresh the page and try again.');
+        return;
+      }
+
+      const commentData = {
+        updateId: updateId,
+        projectId: selectedProject.id,
+        clientId: clientId,
+        clientEmail: clientEmail,
+        comment: comment.trim(),
+        type: 'client_feedback',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      // Remove undefined fields to prevent Firebase errors
+      const cleanCommentData = Object.fromEntries(
+        Object.entries(commentData).filter(([_, value]) => value !== undefined)
+      );
+
+      await addDoc(collection(db, 'update_comments'), cleanCommentData);
+      
+      // Clear the input and refresh comments
+      setNewUpdateComments(prev => ({ ...prev, [updateId]: '' }));
+      await fetchUpdateComments(progressUpdates);
+      
+      alert('Comment sent successfully!');
+    } catch (error) {
+      console.error('Error sending update comment:', error);
+      alert('Failed to send comment. Please try again.');
+    }
+  };
+
+  const toggleUpdateExpansion = (updateId) => {
+    setExpandedUpdates(prev => ({
+      ...prev,
+      [updateId]: !prev[updateId]
+    }));
   };
 
   const handleViewApproval = (approval) => {
@@ -402,58 +508,6 @@ const ClientDashboard = ({ user }) => {
             </div>
           </div>
 
-          {/* Pending Invitations Section */}
-          {pendingInvitations.length > 0 && (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Pending Project Invitations</h2>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-                <p className="text-yellow-700 mb-4">
-                  You have {pendingInvitations.length} project invitation{pendingInvitations.length > 1 ? 's' : ''} waiting for your approval. 
-                  Accept these invitations to start collaborating on the projects.
-                </p>
-                <div className="space-y-4">
-                  {pendingInvitations.map((project) => (
-                    <div key={project.id} className="bg-white border border-yellow-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-medium text-gray-900">{project.title}</h3>
-                          <div className="mt-2 space-y-1">
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium">Freelancer:</span> {freelancerUsernames[project.freelancerId] || 'Unknown'}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium">Rate:</span> RM{project.hourlyRate}/hour
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium">Duration:</span> {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'} - {project.dueDate ? new Date(project.dueDate).toLocaleDateString() : 'N/A'}
-                            </p>
-                            {project.description && (
-                              <p className="text-sm text-gray-600 mt-2">{project.description}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-3 ml-4">
-                          <button
-                            onClick={() => rejectProjectInvitation(project.id)}
-                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            onClick={() => acceptProjectInvitation(project.id)}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            Accept
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Pending Approvals Section */}
           {pendingApprovals.length > 0 && (
             <div className="mb-8">
@@ -500,10 +554,10 @@ const ClientDashboard = ({ user }) => {
                           </td>
                           <td className="px-8 py-5 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
-                              RM{((approval.totalAmount || 0) * 1.06).toFixed(2)}
+                              RM{Number((approval.totalAmount || 0) * 1.06).toFixed(2)}
                             </div>
                             <div className="text-xs text-gray-500">
-                              {approval.totalHours?.toFixed(2)}h × RM{approval.hourlyRate}/h
+                              {Number(approval.totalHours || 0).toFixed(2)}h × RM{approval.hourlyRate}/h
                             </div>
                           </td>
                           <td className="px-8 py-5 whitespace-nowrap text-sm text-gray-900">
@@ -667,11 +721,11 @@ const ClientDashboard = ({ user }) => {
                     <div className="text-sm text-gray-600">Completed</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-yellow-600">{(stats.totalHours || 0).toFixed(1)}h</div>
+                    <div className="text-2xl font-bold text-yellow-600">{Number(stats.totalHours || 0).toFixed(1)}h</div>
                     <div className="text-sm text-gray-600">Hours Worked</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">${(stats.currentCost || 0).toFixed(2)}</div>
+                    <div className="text-2xl font-bold text-purple-600">${Number(stats.currentCost || 0).toFixed(2)}</div>
                     <div className="text-sm text-gray-600">Current Cost</div>
                   </div>
                 </div>
@@ -755,15 +809,15 @@ const ClientDashboard = ({ user }) => {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-sm text-gray-600">Hours Worked:</span>
-                            <span className="text-sm font-medium">{(stats.totalHours || 0).toFixed(1)}h</span>
+                            <span className="text-sm font-medium">{Number(stats.totalHours || 0).toFixed(1)}h</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-sm text-gray-600">Estimated Hours:</span>
-                            <span className="text-sm font-medium">{(stats.estimatedHours || 0).toFixed(1)}h</span>
+                            <span className="text-sm font-medium">{Number(stats.estimatedHours || 0).toFixed(1)}h</span>
                           </div>
                           <div className="flex justify-between border-t pt-2">
                             <span className="text-sm font-semibold">Current Cost:</span>
-                            <span className="text-sm font-bold text-green-600">${(stats.currentCost || 0).toFixed(2)}</span>
+                            <span className="text-sm font-bold text-green-600">${Number(stats.currentCost || 0).toFixed(2)}</span>
                           </div>
                         </div>
                       </div>
@@ -811,20 +865,168 @@ const ClientDashboard = ({ user }) => {
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Progress Updates</h3>
                     <div className="space-y-4">
-                      {progressUpdates.map((update) => (
-                        <div key={update.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium text-gray-900">{update.taskTitle}</h4>
-                            <span className="text-sm text-gray-500">
-                              {update.updatedAt?.toDate().toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="flex items-center space-x-4 text-sm text-gray-600">
-                            <span>Progress: {update.oldProgress}% → {update.newProgress}%</span>
-                            <span className="text-green-600">+{update.progressChange}%</span>
-                          </div>
+                      {progressUpdates.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <MessageCircle className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                          <p>No progress updates yet.</p>
                         </div>
-                      ))}
+                      ) : (
+                        progressUpdates.map((update) => (
+                          <div key={update.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-start space-x-3">
+                              <div className={`p-2 rounded-full ${
+                                update.type === 'comment' ? 'bg-blue-100' :
+                                update.type === 'task_progress' ? 'bg-green-100' :
+                                'bg-gray-100'
+                              }`}>
+                                {update.type === 'comment' ? (
+                                  <MessageCircle className="w-4 h-4 text-blue-600" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div>
+                                    <span className="font-medium text-gray-900">
+                                      {update.freelancerName || 'Freelancer'}
+                                    </span>
+                                    <span className="text-sm text-gray-500 ml-2">
+                                      {update.createdAt?.toDate ? 
+                                        update.createdAt.toDate().toLocaleString() : 
+                                        (update.updatedAt?.toDate ? update.updatedAt.toDate().toLocaleString() : '')}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <button
+                                      onClick={() => toggleUpdateExpansion(update.id)}
+                                      className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                                    >
+                                      <MessageCircle className="w-4 h-4 mr-1" />
+                                      {updateComments[update.id]?.length || 0} comments
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {update.type === 'comment' && (
+                                  <div>
+                                    <p className="text-gray-700 whitespace-pre-wrap">
+                                      {update.data?.comment || update.comment}
+                                    </p>
+
+                                    {update.data?.attachments && update.data.attachments.length > 0 && (
+                                      <div className="mt-3">
+                                        <p className="text-sm text-gray-600 mb-2">Attachments:</p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {update.data.attachments.map((attachment, idx) => (
+                                            <div key={idx} className="relative">
+                                              {attachment.type?.startsWith('image/') ? (
+                                                <div className="group">
+                                                  <img
+                                                    src={attachment.url}
+                                                    alt={attachment.name}
+                                                    className="w-24 h-24 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                                                    onClick={() => {
+                                                      if (attachment.url.startsWith('data:')) {
+                                                        const link = document.createElement('a');
+                                                        link.href = attachment.url;
+                                                        link.download = attachment.name;
+                                                        link.click();
+                                                      } else {
+                                                        window.open(attachment.url, '_blank');
+                                                      }
+                                                    }}
+                                                  />
+                                                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded flex items-center justify-center">
+                                                    <Eye className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <a
+                                                  href={attachment.url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="flex items-center p-2 bg-gray-100 rounded border hover:bg-gray-200 transition-colors"
+                                                >
+                                                  <FileText className="w-4 h-4 text-gray-600 mr-2" />
+                                                  <span className="text-sm text-gray-700 truncate max-w-32">
+                                                    {attachment.name}
+                                                  </span>
+                                                  <Download className="w-3 h-3 text-gray-500 ml-1" />
+                                                </a>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {update.type === 'task_progress' && (
+                                  <div>
+                                    <p className="text-gray-700 mb-2">
+                                      Updated <strong>{update.taskTitle}</strong>
+                                    </p>
+                                    <div className="flex items-center space-x-2 text-sm">
+                                      <span className="text-gray-600">{update.oldProgress}%</span>
+                                      <ArrowRight className="w-4 h-4 text-gray-400" />
+                                      <span className="font-medium text-green-600">{update.newProgress}%</span>
+                                      <span className="text-xs text-green-600">+{update.progressChange}%</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Comments Section */}
+                                {expandedUpdates[update.id] && (
+                                  <div className="mt-4 border-t pt-4">
+                                    <div className="space-y-3">
+                                      {/* Existing Comments */}
+                                      {updateComments[update.id]?.map((comment) => (
+                                        <div key={comment.id} className="bg-gray-50 rounded-lg p-3">
+                                          <div className="flex items-center justify-between mb-1">
+                                            <span className="text-sm font-medium text-gray-900">
+                                              {comment.clientEmail === user?.email ? 'You' : 'Client'}
+                                            </span>
+                                            <span className="text-xs text-gray-500">
+                                              {comment.createdAt?.toDate ? 
+                                                comment.createdAt.toDate().toLocaleString() : 
+                                                'Just now'}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm text-gray-700">{comment.comment}</p>
+                                        </div>
+                                      ))}
+
+                                      {/* Add Comment Form */}
+                                      <div className="flex space-x-2">
+                                        <input
+                                          type="text"
+                                          value={newUpdateComments[update.id] || ''}
+                                          onChange={(e) => setNewUpdateComments(prev => ({
+                                            ...prev,
+                                            [update.id]: e.target.value
+                                          }))}
+                                          placeholder="Add a comment..."
+                                          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        <button
+                                          onClick={() => handleSendUpdateComment(update.id)}
+                                          disabled={!newUpdateComments[update.id]?.trim()}
+                                          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                                        >
+                                          <Send className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
@@ -840,7 +1042,7 @@ const ClientDashboard = ({ user }) => {
                           <div className="space-y-2">
                             <div className="flex justify-between">
                               <span className="text-gray-600">Hours Worked:</span>
-                              <span className="font-medium">{(stats.totalHours || 0).toFixed(1)}h</span>
+                              <span className="font-medium">{Number(stats.totalHours || 0).toFixed(1)}h</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">Hourly Rate:</span>
@@ -848,7 +1050,7 @@ const ClientDashboard = ({ user }) => {
                             </div>
                             <div className="flex justify-between border-t pt-2">
                               <span className="font-semibold">Current Total:</span>
-                              <span className="font-bold text-lg">${(stats.currentCost || 0).toFixed(2)}</span>
+                              <span className="font-bold text-lg">${Number(stats.currentCost || 0).toFixed(2)}</span>
                             </div>
                           </div>
                         </div>
@@ -857,15 +1059,15 @@ const ClientDashboard = ({ user }) => {
                           <div className="space-y-2">
                             <div className="flex justify-between">
                               <span className="text-gray-600">Estimated Hours:</span>
-                              <span className="font-medium">{(stats.estimatedHours || 0).toFixed(1)}h</span>
+                              <span className="font-medium">{Number(stats.estimatedHours || 0).toFixed(1)}h</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">Estimated Total:</span>
-                              <span className="font-medium">${(stats.estimatedCost || 0).toFixed(2)}</span>
+                              <span className="font-medium">${Number(stats.estimatedCost || 0).toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">Remaining Hours:</span>
-                              <span className="font-medium">{((stats.estimatedHours || 0) - (stats.totalHours || 0)).toFixed(1)}h</span>
+                              <span className="font-medium">{Number((Number(stats.estimatedHours || 0) - Number(stats.totalHours || 0)) || 0).toFixed(1)}h</span>
                             </div>
                           </div>
                         </div>

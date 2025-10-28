@@ -203,7 +203,7 @@ const InvoiceGenerator = ({ projectId, onClose }) => {
               {/* Project Info */}
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="font-semibold mb-2">Project: {project.title}</h3>
-                <p className="text-sm text-gray-600">Hourly Rate: ${project.hourlyRate || 0}</p>
+                <p className="text-sm text-gray-600">Hourly Rate: RM{project.hourlyRate || 0}</p>
               </div>
 
               {/* Invoice Details */}
@@ -259,8 +259,8 @@ const InvoiceGenerator = ({ projectId, onClose }) => {
                         <tr key={index} className="border-t">
                           <td className="px-4 py-2">{entry.description}</td>
                           <td className="px-4 py-2">{entry.hours.toFixed(2)}</td>
-                          <td className="px-4 py-2">${(project.hourlyRate || 0).toFixed(2)}</td>
-                          <td className="px-4 py-2">${(entry.hours * (project.hourlyRate || 0)).toFixed(2)}</td>
+                          <td className="px-4 py-2">RM{(project.hourlyRate || 0).toFixed(2)}</td>
+                          <td className="px-4 py-2">RM{(entry.hours * (project.hourlyRate || 0)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -272,15 +272,15 @@ const InvoiceGenerator = ({ projectId, onClose }) => {
               <div className="bg-gray-50 p-4 rounded-lg">
                 <div className="flex justify-between items-center mb-2">
                   <span>Subtotal:</span>
-                  <span>${totals.subtotal.toFixed(2)}</span>
+                  <span>RM{totals.subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center mb-2">
                   <span>Tax (10%):</span>
-                  <span>${totals.tax.toFixed(2)}</span>
+                  <span>RM{totals.tax.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center font-semibold text-lg border-t pt-2">
                   <span>Total:</span>
-                  <span>${totals.total.toFixed(2)}</span>
+                  <span>RM{totals.total.toFixed(2)}</span>
                 </div>
               </div>
 

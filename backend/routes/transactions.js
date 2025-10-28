@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 // Get transactions by client ID
 router.get('/', authenticateToken, async (req, res) => {

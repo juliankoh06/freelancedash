@@ -289,7 +289,7 @@ const Invoices = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Paid Amount</p>
-              <p className="text-2xl font-bold text-gray-900">${calculateTotalAmount(invoices).toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">RM{calculateTotalAmount(invoices).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -301,7 +301,7 @@ const Invoices = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Pending Amount</p>
-              <p className="text-2xl font-bold text-gray-900">${calculatePendingAmount(invoices).toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">RM{calculatePendingAmount(invoices).toLocaleString()}</p>
             </div>
           </div>
         </div>

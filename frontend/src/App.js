@@ -6,6 +6,8 @@ import './App.css';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Projects from './pages/Projects';
 import Invoices from './pages/Invoices';
 import Clients from './pages/Clients';
@@ -19,6 +21,7 @@ import ClientTransactions from './pages/ClientTransactions';
 import ClientPayments from './pages/ClientPayments';
 import ProjectProgress from './pages/ProjectProgress';
 import InvitationAcceptance from './pages/InvitationAcceptance';
+import ContractReview from './pages/ContractReview';
 
 // Import components
 import Layout from './components/Layout';
@@ -38,18 +41,31 @@ function App() {
       const authTime = performance.now();
       
       if (user) {
+        console.log('✅ Firebase Auth State Changed - User logged in:', {
+          uid: user.uid,
+          email: user.email,
+          emailVerified: user.emailVerified
+        });
+        
         const userFetchStart = performance.now();
         
         try {
+          console.log('📥 Fetching user document from Firestore...');
           // Fetch user data from Firebase Firestore
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           const userFetchTime = performance.now();
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
+            console.log('✅ User document found:', {
+              role: userData.role,
+              username: userData.username,
+              email: userData.email
+            });
             
-            // Get the Firebase ID token for API authentication
-            const token = await user.getIdToken();
+            // Get the Firebase ID token for API authentication (force refresh)
+            const token = await user.getIdToken(true);
+            console.log('🔑 Firebase ID token obtained');
             
             const userWithToken = {
               uid: user.uid,
@@ -61,9 +77,29 @@ function App() {
             
             // Set token in API service
             apiService.setToken(token);
+            console.log('✅ Token set in API service');
+            
+            // Set up token refresh interval (refresh every 50 minutes)
+            if (apiService.tokenRefreshInterval) {
+              clearInterval(apiService.tokenRefreshInterval);
+            }
+            
+            apiService.tokenRefreshInterval = setInterval(async () => {
+              try {
+                const newToken = await user.getIdToken(true);
+                apiService.setToken(newToken);
+                console.log('🔄 Token refreshed automatically');
+              } catch (error) {
+                console.error('❌ Token refresh failed:', error);
+                // If refresh fails, user will need to log in again
+                clearInterval(apiService.tokenRefreshInterval);
+              }
+            }, 50 * 60 * 1000); // 50 minutes
             
             setCurrentUser(userWithToken);
+            console.log('✅ Authentication complete - User state updated');
           } else {
+            console.warn('⚠️ User document not found in Firestore for uid:', user.uid);
             setCurrentUser(user);
           }
         } catch (error) {
@@ -71,6 +107,9 @@ function App() {
           setCurrentUser(user);
         }
       } else {
+        console.log('🔓 Firebase Auth State Changed - User logged out');
+        // Clear token and refresh interval when user logs out
+        apiService.clearToken();
         setCurrentUser(null);
       }
       
@@ -163,6 +202,12 @@ function App() {
             element={<InvitationAcceptance />} 
           />
           
+          {/* Contract Review Route - Authentication required */}
+          <Route 
+            path="/contracts/:contractId/review" 
+            element={isLoadingAuth ? null : (isAuthenticated ? <Layout user={currentUser}><ContractReview /></Layout> : <Navigate to="/login" />)} 
+          />
+          
           <Route 
             path="/login" 
             element={isLoadingAuth ? null : (!isAuthenticated ? <Login /> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/dashboard'} />)} 
@@ -170,6 +215,14 @@ function App() {
           <Route 
             path="/register" 
             element={isLoadingAuth ? null : (!isAuthenticated ? <Register /> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/dashboard'} />)} 
+          />
+          <Route 
+            path="/forgot-password" 
+            element={isLoadingAuth ? null : (!isAuthenticated ? <ForgotPassword /> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/dashboard'} />)} 
+          />
+          <Route 
+            path="/reset-password" 
+            element={<ResetPassword />} 
           />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 class Invitation {
   constructor(data) {
@@ -110,14 +110,15 @@ class Invitation {
         acceptedAt: new Date()
       });
       
-      // Update project with clientId and change status to active
-      console.log('Updating project status from pending_approval to active for project:', invitation.projectId);
+      // Update project with clientId and change status to pending_contract
+      // Client has accepted invitation, now needs to review and sign contract
+      console.log('Updating project status from pending_invitation to pending_contract for project:', invitation.projectId);
       await db.collection('projects').doc(invitation.projectId).update({
         clientId: clientId,
-        status: 'active', // Change from pending_approval to active
+        status: 'pending_contract', // Wait for contract signatures before activating
         updatedAt: new Date()
       });
-      console.log('Project status updated successfully');
+      console.log('Project status updated successfully - awaiting contract signatures');
       
       return { success: true, data: invitation };
     } catch (error) {

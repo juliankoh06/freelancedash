@@ -1,15 +1,16 @@
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 class User {
   constructor(data) {
     this.id = data.id;
     this.email = data.email;
     this.password = data.password;
-    this.name = data.name;
+    this.username = data.username;
+    this.fullName = data.fullName;
     this.role = data.role || 'freelancer'; // freelancer or client
     this.company = data.company || '';
-    this.phone = data.phone || '';
     this.address = data.address || '';
+    this.country = data.country || '';
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
@@ -30,6 +31,44 @@ class User {
   static async findByEmail(email) {
     try {
       const snapshot = await db.collection('users').where('email', '==', email).get();
+      if (snapshot.empty) return null;
+      
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
+    } catch (error) {
+      throw new Error('Error finding user: ' + error.message);
+    }
+  }
+
+  static async findByEmailAndRole(email, role) {
+    try {
+      const snapshot = await db.collection('users')
+        .where('email', '==', email)
+        .where('role', '==', role)
+        .get();
+      if (snapshot.empty) return null;
+      
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
+    } catch (error) {
+      throw new Error('Error finding user by email and role: ' + error.message);
+    }
+  }
+
+  static async findAllByEmail(email) {
+    try {
+      const snapshot = await db.collection('users').where('email', '==', email).get();
+      if (snapshot.empty) return [];
+      
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      throw new Error('Error finding users by email: ' + error.message);
+    }
+  }
+
+  static async findByUsername(username) {
+    try {
+      const snapshot = await db.collection('users').where('username', '==', username).get();
       if (snapshot.empty) return null;
       
       const doc = snapshot.docs[0];

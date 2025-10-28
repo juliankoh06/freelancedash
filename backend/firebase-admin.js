@@ -22,7 +22,9 @@ if (!admin.apps.length) {
     credential = admin.credential.applicationDefault();
   }
 
-  admin.initializeApp({ credential });
+  const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || 'freelancedash-58984.appspot.com';
+  admin.initializeApp({ credential, storageBucket });
+  console.log(' Firebase Admin initialized with bucket:', storageBucket);
 }
 
 const db = admin.firestore();

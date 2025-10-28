@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 // Email configuration
 const transporter = nodemailer.createTransport({
@@ -346,12 +346,12 @@ function generateInvoiceEmailHTML(invoiceData) {
             <li>Invoice Number: ${invoiceData.invoiceNumber}</li>
             <li>Date: ${new Date(invoiceData.issueDate || invoiceData.date).toLocaleDateString()}</li>
             <li>Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}</li>
-            <li>Total Amount: ${invoiceData.currency || 'RM'}${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</li>
+            <li>Total Amount: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</li>
           </ul>
           
           <div class="total">
             <h3>Payment Details:</h3>
-            <p><strong>Total Due: ${invoiceData.currency || 'RM'}${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
+            <p><strong>Total Due: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
             <p>Please remit payment by the due date to avoid any late fees.</p>
           </div>
           
@@ -391,7 +391,7 @@ function generateFollowUpEmailHTML(invoiceData, followUpType) {
           <p>Dear ${invoiceData.clientName},</p>
           <p>This is a ${followUpType === 'overdue' ? 'friendly reminder' : 'gentle reminder'} regarding your outstanding invoice <strong>${invoiceData.invoiceNumber}</strong> for the project <strong>${invoiceData.projectTitle}</strong>.</p>
           
-          <p><strong>Amount Due: ${invoiceData.currency || 'RM'}${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
+          <p><strong>Amount Due: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
           <p>Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}</p>
           
           ${followUpType === 'overdue' ? 

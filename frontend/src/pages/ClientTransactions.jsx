@@ -159,7 +159,7 @@ const ClientTransactions = ({ user }) => {
             <CheckCircle className="w-8 h-8 text-green-500" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Amount</p>
-              <p className="text-2xl font-bold text-gray-900">${totalAmount.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-gray-900">RM{totalAmount.toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -169,7 +169,7 @@ const ClientTransactions = ({ user }) => {
             <Clock className="w-8 h-8 text-yellow-500" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Completed</p>
-              <p className="text-2xl font-bold text-gray-900">${completedAmount.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-gray-900">RM{completedAmount.toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -262,7 +262,7 @@ const ClientTransactions = ({ user }) => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
-                        ${transaction.amount?.toFixed(2) || '0.00'}
+                        RM{transaction.amount?.toFixed(2) || '0.00'}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

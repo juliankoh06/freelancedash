@@ -1,5 +1,6 @@
 // Enhanced Progress Tracking Service with automatic client notifications
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../firebase-config';
 import { projectValidation, errorHandling } from '../utils/validation';
 
@@ -9,70 +10,48 @@ class ProgressTrackingService {
     this.notificationQueue = [];
   }
 
-  // Track task progress with automatic notifications
+  // Track task progress with server-side validation
   async updateTaskProgress(taskId, progressData, userId) {
     try {
-      // Validate progress data
-      const validation = projectValidation.validateTaskData(progressData);
-      if (!validation.isValid) {
-        throw new Error(errorHandling.handleValidationErrors(validation.errors));
+      // Send to backend for server-side validation
+      const response = await fetch(`/api/progress/task/${taskId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify(progressData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update task progress');
       }
 
-      // Get current task data
-      const taskDoc = await getDocs(query(collection(db, 'tasks'), where('__name__', '==', taskId)));
-      if (taskDoc.empty) {
-        throw new Error('Task not found');
-      }
-
-      const currentTask = { id: taskId, ...taskDoc.docs[0].data() };
-      
-      // Calculate progress change
-      const oldProgress = currentTask.progress || 0;
-      const newProgress = parseInt(progressData.progress) || 0;
-      const progressChange = newProgress - oldProgress;
-
-      // Update task with metadata
-      const updateData = {
-        ...progressData,
-        progress: newProgress,
-        updatedAt: new Date(),
-        lastProgressUpdate: new Date(),
-        progressHistory: [
-          ...(currentTask.progressHistory || []),
-          {
-            from: oldProgress,
-            to: newProgress,
-            timestamp: new Date(),
-            updatedBy: userId
-          }
-        ]
-      };
-
-      await updateDoc(doc(db, 'tasks', taskId), updateData);
-
-      // Update project progress if task is part of a project
-      if (currentTask.projectId) {
-        await this.updateProjectProgress(currentTask.projectId);
-      }
-
-      // Send notification if significant progress change
-      if (Math.abs(progressChange) >= 10) { // 10% or more change
-        await this.sendProgressNotification(currentTask, progressChange, userId);
-      }
-
-      console.log(`Task progress updated: ${taskId} (${oldProgress}% → ${newProgress}%)`);
+      const result = await response.json();
+      console.log(`Task progress updated with server validation: ${taskId}`);
       
       return {
         success: true,
-        data: { id: taskId, ...updateData }
+        data: result.data
       };
     } catch (error) {
       console.error('Error updating task progress:', error);
       return {
         success: false,
-        error: errorHandling.handleApiError(error, 'updating task progress')
+        error: error.message
       };
     }
+  }
+
+  // Get authentication token
+  async getAuthToken() {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (user) {
+      return await user.getIdToken();
+    }
+    throw new Error('User not authenticated');
   }
 
   // Update overall project progress

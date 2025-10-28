@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 // Get all payments
 router.get('/', async (req, res) => {

@@ -163,18 +163,32 @@ const ProjectProgress = () => {
     if (!newComment.trim()) return;
 
     try {
+      // Ensure we have valid client identification
+      const clientId = project?.clientId || null;
+      const clientEmail = project?.clientEmail || null;
+      
+      if (!clientId && !clientEmail) {
+        alert('Unable to identify client. Please refresh the page and try again.');
+        return;
+      }
+
       // Create a client comment/feedback
       const commentData = {
         projectId: projectId,
-        clientId: project?.clientId,
-        clientEmail: project?.clientEmail,
+        clientId: clientId,
+        clientEmail: clientEmail,
         comment: newComment.trim(),
         type: 'client_feedback',
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      await addDoc(collection(db, 'project_comments'), commentData);
+      // Remove undefined fields to prevent Firebase errors
+      const cleanCommentData = Object.fromEntries(
+        Object.entries(commentData).filter(([_, value]) => value !== undefined)
+      );
+
+      await addDoc(collection(db, 'project_comments'), cleanCommentData);
       setNewComment('');
       
       // Show success message
@@ -278,7 +292,7 @@ const ProjectProgress = () => {
               <div className="text-sm text-gray-600">Hours Worked</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">${stats.currentCost.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-purple-600">RM{stats.currentCost.toFixed(2)}</div>
               <div className="text-sm text-gray-600">Current Cost</div>
             </div>
           </div>
@@ -360,7 +374,7 @@ const ProjectProgress = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Hourly Rate:</span>
-                      <span className="text-sm font-medium">${project.hourlyRate || 0}/hr</span>
+                      <span className="text-sm font-medium">RM{project.hourlyRate || 0}/hr</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Hours Worked:</span>
@@ -372,7 +386,7 @@ const ProjectProgress = () => {
                     </div>
                     <div className="flex justify-between border-t pt-2">
                       <span className="text-sm font-semibold">Current Cost:</span>
-                      <span className="text-sm font-bold text-green-600">${stats.currentCost.toFixed(2)}</span>
+                      <span className="text-sm font-bold text-green-600">RM{stats.currentCost.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -504,11 +518,11 @@ const ProjectProgress = () => {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Hourly Rate:</span>
-                        <span className="font-medium">${project.hourlyRate || 0}</span>
+                        <span className="font-medium">RM{project.hourlyRate || 0}</span>
                       </div>
                       <div className="flex justify-between border-t pt-2">
                         <span className="font-semibold">Current Total:</span>
-                        <span className="font-bold text-lg">${stats.currentCost.toFixed(2)}</span>
+                        <span className="font-bold text-lg">RM{stats.currentCost.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -521,7 +535,7 @@ const ProjectProgress = () => {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Estimated Total:</span>
-                        <span className="font-medium">${stats.estimatedCost.toFixed(2)}</span>
+                        <span className="font-medium">RM{stats.estimatedCost.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Remaining Hours:</span>

@@ -2,87 +2,146 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to get project data
-    function getProject(projectId) {
-      return get(/databases/$(database)/documents/projects/$(projectId)).data;
+    // Users - authenticated users can read any user data
+    match /users/{userId} {
+      allow read, list: if request.auth != null;
+      allow write: if request.auth != null;
     }
     
-    // Helper function to check if user is project member
-    function isProjectMember(projectId) {
-      let project = getProject(projectId);
-      return request.auth.uid == project.freelancerId || 
-             request.auth.uid == project.clientId;
-    }
-    
-    // Projects - only freelancer and client can access
+    // Projects - authenticated users can access
     match /projects/{projectId} {
-      allow read: if request.auth != null && 
-        (request.auth.uid == resource.data.freelancerId || 
-         request.auth.uid == resource.data.clientId);
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.freelancerId;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.freelancerId;
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Tasks - only project members can access
+    // Tasks - authenticated users can access their tasks
     match /tasks/{taskId} {
-      allow read, write: if request.auth != null && 
-        isProjectMember(resource.data.projectId);
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Progress Updates - only project members can access
+    // Progress Updates - authenticated users can access
     match /progress_updates/{updateId} {
-      allow read: if request.auth != null && 
-        isProjectMember(resource.data.projectId);
-      allow create, update: if request.auth != null && 
-        isProjectMember(request.resource.data.projectId);
-      allow delete: if request.auth != null && 
-        isProjectMember(resource.data.projectId);
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Project Comments - only project members can access
-    match /project_comments/{commentId} {
-      allow read: if request.auth != null && 
-        isProjectMember(resource.data.projectId);
-      allow create: if request.auth != null && 
-        isProjectMember(request.resource.data.projectId);
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.freelancerId;
+    // Time Sessions - authenticated users can access
+    match /time_sessions/{sessionId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Transactions - only project members can access
+    // Time Tracking - authenticated users can access
+    match /timeTracking/{trackingId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Transactions - authenticated users can access
     match /transactions/{transactionId} {
-      allow read: if request.auth != null && 
-        (request.auth.uid == resource.data.freelancerId || 
-         request.auth.uid == resource.data.clientId);
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.freelancerId;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.freelancerId;
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Invoices - only project members can access
+    // Invoices - authenticated users can access
     match /invoices/{invoiceId} {
-      allow read: if request.auth != null && 
-        (request.auth.uid == resource.data.freelancerId || 
-         request.auth.uid == resource.data.clientId);
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.freelancerId;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.freelancerId;
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
     
-    // Invitations - anyone authenticated can read, only freelancer can create
+    // Recurring Invoices - authenticated users can access
+    match /recurring_invoices/{recurringId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Invitations - authenticated users can access
     match /invitations/{invitationId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.freelancerId;
-      allow update: if request.auth != null && 
-        (request.auth.uid == resource.data.freelancerId || 
-         request.auth.email == resource.data.clientEmail);
-      allow delete: if request.auth != null && 
-        request.auth.uid == resource.data.freelancerId;
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Audit Logs - authenticated users can read
+    match /audit_logs/{logId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Progress update replies - threaded comments
+    match /progress_update_replies/{replyId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Completion Requests - for project approval workflow
+    match /completion_requests/{requestId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Contracts - for contract signing workflow
+    match /contracts/{contractId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Notifications - for user notifications
+    match /notifications/{notificationId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Payments - for payment records
+    match /payments/{paymentId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Revision Requests - for client revision requests
+    match /revision_requests/{revisionId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Revisions - for revision tracking
+    match /revisions/{revisionId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
   }
 }

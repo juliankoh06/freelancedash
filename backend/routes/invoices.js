@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const Invoice = require('../models/Invoice');
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
+const invoiceCalculationService = require('../services/invoiceCalculationService');
+const { authenticateToken, authorizeRole } = require('../middleware/auth');
 
 // Get all invoices
 router.get('/', async (req, res) => {
@@ -13,13 +15,31 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create new invoice
-router.post('/', async (req, res) => {
+// Create new invoice with server-side validation
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const invoice = await Invoice.create(req.body);
-    res.json({ success: true, data: invoice });
+    const invoiceData = {
+      ...req.body,
+      freelancerId: req.user.uid
+    };
+    
+    const result = await invoiceCalculationService.createInvoice(invoiceData);
+    res.json({ success: true, data: result.invoice });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error creating invoice:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Client approve invoice
+router.post('/:id/approve', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await invoiceCalculationService.approveInvoice(id, req.user.uid);
+    res.json({ success: true, message: 'Invoice approved successfully' });
+  } catch (error) {
+    console.error('Error approving invoice:', error);
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 

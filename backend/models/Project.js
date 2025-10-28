@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 class Project {
   constructor(data) {
@@ -8,7 +8,7 @@ class Project {
     this.freelancerId = data.freelancerId;
     this.clientId = data.clientId;
     this.clientEmail = data.clientEmail; // Add client email support
-    this.status = data.status || 'pending'; // pending, active, completed, cancelled
+    this.status = data.status || 'draft'; // draft, pending_invitation, pending_contract, pending_client_signature, pending_freelancer_signature, active, completed, cancelled
     this.priority = data.priority || 'medium'; // low, medium, high
     this.deadline = data.deadline;
     this.budget = data.budget;
@@ -25,9 +25,12 @@ class Project {
         createdAt: new Date(),
         updatedAt: new Date()
       });
-      return { id: projectRef.id, ...projectData };
+      
+      const createdProject = { id: projectRef.id, ...projectData, createdAt: new Date(), updatedAt: new Date() };
+      return { success: true, data: createdProject };
     } catch (error) {
-      throw new Error('Error creating project: ' + error.message);
+      console.error('Error creating project in model:', error);
+      return { success: false, error: error.message };
     }
   }
 

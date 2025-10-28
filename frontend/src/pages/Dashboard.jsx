@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, 
   FileText, 
-  CheckCircle
+  CheckCircle,
+  AlertCircle,
+  Send,
+  Clock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase-config';
 
 const Dashboard = ({ user }) => {
@@ -17,10 +20,16 @@ const Dashboard = ({ user }) => {
 
   const [chartData, setChartData] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [projectsNeedingRevision, setProjectsNeedingRevision] = useState([]);
+  const [showResubmitModal, setShowResubmitModal] = useState(false);
+  const [projectToResubmit, setProjectToResubmit] = useState(null);
+  const [resubmitNotes, setResubmitNotes] = useState('');
+  const [resubmitting, setResubmitting] = useState(false);
 
   useEffect(() => {
     if (user) {
       fetchDashboardData();
+      fetchProjectsNeedingRevision();
     }
   }, [user]);
 
@@ -156,6 +165,151 @@ const Dashboard = ({ user }) => {
     }
   };
 
+  const fetchProjectsNeedingRevision = async () => {
+    try {
+      if (!user || !user.uid) {
+        console.error('No current user found');
+        return;
+      }
+
+      // Fetch projects marked as needing revision
+      const projectsQuery = query(
+        collection(db, 'projects'),
+        where('freelancerId', '==', user.uid),
+        where('needsRevision', '==', true),
+        where('status', '==', 'active')
+      );
+      const projectsSnapshot = await getDocs(projectsQuery);
+      const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // For each project, fetch the latest rejected completion request
+      const projectsWithFeedback = await Promise.all(
+        projects.map(async (project) => {
+          try {
+            const completionQuery = query(
+              collection(db, 'completion_requests'),
+              where('projectId', '==', project.id),
+              where('status', '==', 'rejected')
+            );
+            const completionSnapshot = await getDocs(completionQuery);
+            
+            if (!completionSnapshot.empty) {
+              // Get the most recent rejection
+              const rejections = completionSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              const latestRejection = rejections.sort((a, b) => {
+                const aDate = a.respondedAt?.toDate?.() || new Date(a.respondedAt);
+                const bDate = b.respondedAt?.toDate?.() || new Date(b.respondedAt);
+                return bDate - aDate;
+              })[0];
+              
+              return {
+                ...project,
+                clientNotes: latestRejection.clientNotes || 'No reason provided',
+                revisionCount: latestRejection.revisionCount || 1,
+                rejectedAt: latestRejection.respondedAt
+              };
+            }
+            return project;
+          } catch (error) {
+            console.error(`Error fetching completion request for project ${project.id}:`, error);
+            return project;
+          }
+        })
+      );
+      
+      setProjectsNeedingRevision(projectsWithFeedback);
+    } catch (error) {
+      console.error('Error fetching projects needing revision:', error);
+      setProjectsNeedingRevision([]);
+    }
+  };
+
+  const handleResubmitForApproval = async () => {
+    if (!projectToResubmit || !resubmitNotes.trim()) {
+      alert('Please add notes about the changes you made.');
+      return;
+    }
+
+    setResubmitting(true);
+    try {
+      // Fetch project data to get current stats
+      const projectRef = doc(db, 'projects', projectToResubmit.id);
+      
+      // Fetch tasks to calculate completion stats
+      const tasksQuery = query(
+        collection(db, 'tasks'),
+        where('projectId', '==', projectToResubmit.id)
+      );
+      const tasksSnapshot = await getDocs(tasksQuery);
+      const tasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const totalTasks = tasks.length;
+      const completedTasks = tasks.filter(task => task.status === 'completed').length;
+      
+      // Fetch time tracking for hours
+      const timeTrackingQuery = query(
+        collection(db, 'timeTracking'),
+        where('projectId', '==', projectToResubmit.id)
+      );
+      const timeSnapshot = await getDocs(timeTrackingQuery);
+      const totalHours = timeSnapshot.docs.reduce((sum, doc) => {
+        return sum + (doc.data().duration || 0);
+      }, 0);
+
+      // Create new completion request
+      await addDoc(collection(db, 'completion_requests'), {
+        projectId: projectToResubmit.id,
+        projectTitle: projectToResubmit.title,
+        freelancerId: user.uid,
+        freelancerEmail: user.email,
+        clientId: projectToResubmit.clientId,
+        clientEmail: projectToResubmit.clientEmail,
+        status: 'pending_approval',
+        submittedAt: new Date(),
+        freelancerNotes: resubmitNotes,
+        isResubmission: true,
+        stats: {
+          totalTasks,
+          completedTasks,
+          totalHours: Math.round(totalHours / 3600000) // Convert ms to hours
+        }
+      });
+
+      // Update project: clear needsRevision and needsAttention flags
+      await updateDoc(projectRef, {
+        needsRevision: false,
+        needsAttention: false,
+        lastResubmittedAt: new Date()
+      });
+
+      // Notify the client
+      await addDoc(collection(db, 'notifications'), {
+        userId: projectToResubmit.clientId,
+        type: 'project_resubmitted',
+        title: 'Project Resubmitted for Approval',
+        message: `${user.email} has resubmitted "${projectToResubmit.title}" for your review after making revisions.`,
+        projectId: projectToResubmit.id,
+        read: false,
+        createdAt: new Date()
+      });
+
+      // Success - close modal and refresh
+      setShowResubmitModal(false);
+      setProjectToResubmit(null);
+      setResubmitNotes('');
+      
+      // Refresh the projects list
+      fetchProjectsNeedingRevision();
+      
+      alert('Project resubmitted successfully! The client will be notified.');
+    } catch (error) {
+      console.error('Error resubmitting project:', error);
+      alert('Failed to resubmit project. Please try again.');
+    } finally {
+      setResubmitting(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -163,6 +317,78 @@ const Dashboard = ({ user }) => {
       <div className="mb-8">
         <p className="text-gray-600">Welcome back! Here's what's happening with your freelance business.</p>
       </div>
+
+      {/* Projects Needing Revision Alert */}
+      {projectsNeedingRevision.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-6 mb-8">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <AlertCircle className="w-6 h-6 text-orange-600" />
+            </div>
+            <div className="ml-3 flex-1">
+              <h3 className="text-lg font-semibold text-orange-900 mb-2">
+                Projects Pending Revision ({projectsNeedingRevision.length})
+              </h3>
+              <p className="text-orange-700 mb-4">
+                The following project{projectsNeedingRevision.length > 1 ? 's have' : ' has'} been reviewed by the client and {projectsNeedingRevision.length > 1 ? 'need' : 'needs'} revisions before approval.
+              </p>
+              <div className="space-y-3">
+                {projectsNeedingRevision.map((project) => (
+                  <div key={project.id} className="bg-white border border-orange-300 rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-gray-900">{project.title}</h4>
+                          {project.revisionCount && (
+                            <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs font-medium rounded">
+                              Revision #{project.revisionCount}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">
+                          <span className="font-medium">Client:</span> {project.clientEmail || 'Unknown'}
+                        </p>
+                        {project.clientNotes && (
+                          <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded">
+                            <p className="text-sm font-medium text-orange-900 mb-1">Client Feedback:</p>
+                            <p className="text-sm text-orange-800">{project.clientNotes}</p>
+                          </div>
+                        )}
+                        {project.rejectedAt && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Rejected on: {new Date(project.rejectedAt.seconds * 1000 || project.rejectedAt).toLocaleDateString()}
+                          </p>
+                        )}
+                        {project.needsAttention && (
+                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
+                            <p className="text-xs text-red-700">
+                              ⚠️ <strong>Multiple revisions requested.</strong> Consider contacting the client directly to discuss requirements.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setProjectToResubmit(project);
+                          setShowResubmitModal(true);
+                          setResubmitNotes('');
+                        }}
+                        className="ml-4 flex-shrink-0 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                      >
+                        <Send className="w-4 h-4" />
+                        Resubmit
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-orange-600 mt-4">
+                💡 <strong>Next steps:</strong> Review the client's feedback, make the necessary changes, and resubmit the work for approval.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
         {/* Stats Cards */}
         <div className="dashboard-stats mb-8">
@@ -192,7 +418,7 @@ const Dashboard = ({ user }) => {
                 <DollarSign className="w-6 h-6 text-purple-600" />
               </div>
               <p className="text-sm font-medium text-gray-600 mb-1">This Month</p>
-              <p className="text-2xl font-bold text-gray-900">${stats.earnings.thisMonth.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">RM{stats.earnings.thisMonth.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -210,9 +436,6 @@ const Dashboard = ({ user }) => {
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full"></div>
                     <span className="text-sm text-gray-600">Monthly Earnings</span>
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    Total: <span className="font-semibold text-gray-900">${stats.earnings.total.toLocaleString()}</span>
                   </div>
                 </div>
                 <div className="text-sm text-gray-500">
@@ -239,7 +462,7 @@ const Dashboard = ({ user }) => {
                     axisLine={false}
                     tickLine={false}
                     tick={{ fontSize: 12, fill: '#64748b' }}
-                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                    tickFormatter={(value) => `RM${(value / 1000).toFixed(0)}k`}
                   />
                   <Tooltip 
                     contentStyle={{
@@ -313,6 +536,88 @@ const Dashboard = ({ user }) => {
             </div>
           )}
         </div>
+
+      {/* Resubmit Modal */}
+      {showResubmitModal && projectToResubmit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-1">Resubmit for Approval</h2>
+                  <p className="text-sm text-gray-600">Project: {projectToResubmit.title}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowResubmitModal(false);
+                    setProjectToResubmit(null);
+                    setResubmitNotes('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                  disabled={resubmitting}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Show previous rejection reason */}
+              {projectToResubmit.clientNotes && (
+                <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-sm font-semibold text-orange-900 mb-2">Previous Client Feedback:</p>
+                  <p className="text-sm text-orange-800">{projectToResubmit.clientNotes}</p>
+                  {projectToResubmit.revisionCount > 1 && (
+                    <p className="text-xs text-orange-600 mt-2">
+                      This is revision #{projectToResubmit.revisionCount}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  What changes did you make? <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={resubmitNotes}
+                  onChange={(e) => setResubmitNotes(e.target.value)}
+                  placeholder="Describe the revisions you made based on the client's feedback..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={6}
+                  disabled={resubmitting}
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Be specific about what you changed to address the client's concerns.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowResubmitModal(false);
+                    setProjectToResubmit(null);
+                    setResubmitNotes('');
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  disabled={resubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleResubmitForApproval}
+                  disabled={resubmitting || !resubmitNotes.trim()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  {resubmitting ? 'Submitting...' : 'Resubmit for Approval'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

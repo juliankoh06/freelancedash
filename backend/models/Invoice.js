@@ -1,4 +1,4 @@
-const { db } = require('../firebase-config');
+const { db } = require('../firebase-admin');
 
 class Invoice {
   constructor(data) {

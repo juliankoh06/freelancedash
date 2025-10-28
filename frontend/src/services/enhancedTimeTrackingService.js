@@ -9,6 +9,7 @@ import {
   orderBy,
   onSnapshot 
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../firebase-config';
 
 class EnhancedTimeTrackingService {
@@ -16,108 +17,84 @@ class EnhancedTimeTrackingService {
     this.activeSessions = new Map();
   }
 
-  // Start time tracking with enhanced features
+  // Start time tracking with server-side validation
   async startTracking(taskId, projectId, userId) {
     try {
-      console.log('🕒 Starting enhanced time tracking for task:', taskId);
-      console.log('🕒 Project ID:', projectId);
-      console.log('🕒 User ID:', userId);
+      console.log('🕒 Starting time tracking with server validation:', taskId);
       
-      if (!projectId) {
-        throw new Error('Project ID is required for time tracking');
-      }
-      
-      if (!userId) {
-        throw new Error('User ID is required for time tracking');
-      }
-      
-      const sessionId = `${taskId}_${Date.now()}`;
-      const startTime = new Date();
-      
-      // Create time tracking session
-      const sessionData = {
-        taskId,
-        projectId,
-        userId,
-        sessionId,
-        startTime,
-        endTime: null,
-        duration: 0,
-        status: 'active',
-        notes: '',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
+      // Send to backend for server-side validation
+      const response = await fetch(`/api/time-tracking/start/${taskId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify({ projectId })
+      });
 
-      const docRef = await addDoc(collection(db, 'time_sessions'), sessionData);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start time tracking');
+      }
+
+      const result = await response.json();
       
-      // Store active session
+      // Store active session locally for UI updates
       this.activeSessions.set(taskId, {
-        sessionId: docRef.id,
-        startTime
+        sessionId: result.data.sessionId,
+        startTime: new Date()
       });
 
-      // Update task status
-      await updateDoc(doc(db, 'tasks', taskId), {
-        status: 'in-progress',
-        trackingStartTime: startTime,
-        currentSessionId: docRef.id,
-        updatedAt: new Date()
-      });
-
-      console.log('✅ Enhanced time tracking started');
-      return { success: true, sessionId: docRef.id };
+      console.log('✅ Time tracking started with server validation');
+      return { success: true, sessionId: result.data.sessionId };
     } catch (error) {
-      console.error('❌ Error starting enhanced time tracking:', error);
+      console.error('❌ Error starting time tracking:', error);
       throw error;
     }
   }
 
-  // Stop time tracking with analytics
+  // Get authentication token
+  async getAuthToken() {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (user) {
+      return await user.getIdToken();
+    }
+    throw new Error('User not authenticated');
+  }
+
+  // Stop time tracking with server-side validation
   async stopTracking(taskId, notes = '') {
     try {
-      console.log('🕒 Stopping enhanced time tracking for task:', taskId);
+      console.log('🕒 Stopping time tracking with server validation:', taskId);
       
-      const session = this.activeSessions.get(taskId);
-      if (!session) {
-        throw new Error('No active session found for this task');
+      // Send to backend for server-side validation
+      const response = await fetch(`/api/time-tracking/stop/${taskId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify({ notes })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to stop time tracking');
       }
 
-      const endTime = new Date();
-      const duration = (endTime - session.startTime) / 1000 / 60 / 60; // hours
-
-      // Update session
-      await updateDoc(doc(db, 'time_sessions', session.sessionId), {
-        endTime,
-        duration,
-        notes,
-        status: 'completed',
-        updatedAt: new Date()
-      });
-
-      // Update task with total time (use duration, not activeTime, to match live timer)
-      const taskRef = doc(db, 'tasks', taskId);
-      const taskDoc = await getDocs(query(collection(db, 'tasks'), where('__name__', '==', taskId)));
-      const currentTimeSpent = taskDoc.docs[0]?.data()?.timeSpent || 0;
+      const result = await response.json();
       
-      await updateDoc(taskRef, {
-        timeSpent: currentTimeSpent + duration, // Use total duration to match live timer
-        status: 'paused',
-        trackingStartTime: null,
-        currentSessionId: null,
-        updatedAt: new Date()
-      });
-
       // Remove from active sessions
       this.activeSessions.delete(taskId);
 
-      console.log('✅ Enhanced time tracking stopped');
+      console.log('✅ Time tracking stopped with server validation');
       return { 
         success: true, 
-        duration: duration
+        duration: result.data.duration
       };
     } catch (error) {
-      console.error('❌ Error stopping enhanced time tracking:', error);
+      console.error('❌ Error stopping time tracking:', error);
       throw error;
     }
   }

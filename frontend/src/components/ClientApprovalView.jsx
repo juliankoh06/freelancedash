@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Clock, DollarSign, User, Calendar, FileText, AlertCircle } from 'lucide-react';
-import { collection, query, getDocs, where, updateDoc, doc, addDoc } from 'firebase/firestore';
+import { CheckCircle, XCircle, Clock, DollarSign, User, Calendar, FileText, AlertCircle, MessageSquare, History } from 'lucide-react';
+import { collection, query, getDocs, where, updateDoc, doc, addDoc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase-config';
 import invoiceService from '../services/invoiceService';
 import { INVOICE_STATUSES } from '../models/Invoice';
@@ -12,10 +12,34 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
   const [approving, setApproving] = useState(false);
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
   const [invoicePreviewData, setInvoicePreviewData] = useState(null);
+  const [revisionHistory, setRevisionHistory] = useState([]);
+  const [showRevisionHistory, setShowRevisionHistory] = useState(false);
+  const [revisionReason, setRevisionReason] = useState('');
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
 
   useEffect(() => {
     fetchCompletionRequest();
+    fetchRevisionHistory();
   }, [projectId]);
+
+  useEffect(() => {
+    console.log('showRevisionModal changed to:', showRevisionModal);
+  }, [showRevisionModal]);
+
+  const fetchRevisionHistory = async () => {
+    try {
+      const q = query(
+        collection(db, 'revision_history'),
+        where('projectId', '==', projectId),
+        orderBy('createdAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const history = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setRevisionHistory(history);
+    } catch (error) {
+      console.error('Error fetching revision history:', error);
+    }
+  };
 
   const fetchCompletionRequest = async () => {
     try {
@@ -48,39 +72,10 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
     }
     
     if (!approved) {
-      // Handle rejection immediately
-      setApproving(true);
-      try {
-        await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
-          status: 'rejected',
-          respondedAt: new Date(),
-          clientNotes: 'Work needs revision'
-        });
-
-        await updateDoc(doc(db, 'projects', projectId), {
-          status: 'active',
-          updatedAt: new Date()
-        });
-
-        await addDoc(collection(db, 'project_comments'), {
-          projectId: projectId,
-          freelancerId: completionRequest.freelancerId,
-          clientId: completionRequest.clientId,
-          clientEmail: completionRequest.clientEmail,
-          comment: 'Client requested revision. Please review and improve the work.',
-          type: 'client_revision_request',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-        
-        alert('📝 Revision requested! Freelancer has been notified to improve the work.');
-        onApprovalUpdate?.(false);
-      } catch (error) {
-        console.error('Error updating approval:', error);
-        alert(`Failed to update approval: ${error.message}`);
-      } finally {
-        setApproving(false);
-      }
+      // Show revision modal to get reason
+      console.log('Opening revision modal... Current showRevisionModal state:', showRevisionModal);
+      setShowRevisionModal(true);
+      console.log('After setting showRevisionModal to true');
       return;
     }
 
@@ -88,6 +83,89 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
     const invoiceData = prepareInvoiceData();
     setInvoicePreviewData(invoiceData);
     setShowInvoicePreview(true);
+  };
+
+  const handleRevisionSubmit = async () => {
+    if (!revisionReason.trim()) {
+      alert('Please provide a reason for revision');
+      return;
+    }
+
+    setApproving(true);
+    setShowRevisionModal(false);
+    
+    try {
+      // Count previous revisions
+      const revisionCount = revisionHistory.length + 1;
+      
+      // Add to revision history
+      await addDoc(collection(db, 'revision_history'), {
+        projectId: projectId,
+        requestId: completionRequest.id,
+        revisionNumber: revisionCount,
+        reason: revisionReason,
+        requestedBy: user.uid,
+        requestedByName: user.displayName || user.email,
+        requestedAt: new Date(),
+        status: 'pending',
+        freelancerId: completionRequest.freelancerId,
+        clientId: completionRequest.clientId
+      });
+
+      await updateDoc(doc(db, 'completion_requests', completionRequest.id), {
+        status: 'rejected',
+        respondedAt: new Date(),
+        clientNotes: revisionReason,
+        revisionCount: revisionCount
+      });
+
+      await updateDoc(doc(db, 'projects', projectId), {
+        status: 'active',
+        revisionCount: revisionCount,
+        needsAttention: revisionCount >= 3, // Flag if 3+ revisions
+        needsRevision: true, // Mark that it needs revision
+        updatedAt: new Date()
+      });
+
+      await addDoc(collection(db, 'project_comments'), {
+        projectId: projectId,
+        freelancerId: completionRequest.freelancerId,
+        clientId: completionRequest.clientId,
+        clientEmail: completionRequest.clientEmail,
+        comment: `Revision requested (Attempt ${revisionCount}): ${revisionReason}`,
+        type: 'client_revision_request',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      // Create notification for freelancer
+      await addDoc(collection(db, 'notifications'), {
+        freelancerId: completionRequest.freelancerId,
+        projectId: projectId,
+        type: 'completion_rejected',
+        title: 'Project Completion Needs Revision',
+        message: `Client has requested revisions for "${completionRequest.projectTitle || 'your project'}"`,
+        revisionReason: revisionReason,
+        revisionCount: revisionCount,
+        createdAt: new Date(),
+        read: false
+      });
+
+      if (revisionCount >= 3) {
+        alert(`⚠️ This is revision #${revisionCount}. Project flagged for discussion. Consider scheduling a meeting with the freelancer.`);
+      } else {
+        alert('📝 Revision requested! Freelancer has been notified.');
+      }
+      
+      setRevisionReason('');
+      fetchRevisionHistory();
+      onApprovalUpdate?.(false);
+    } catch (error) {
+      console.error('Error updating approval:', error);
+      alert(`Failed to update approval: ${error.message}`);
+    } finally {
+      setApproving(false);
+    }
   };
 
   const prepareInvoiceData = () => {
@@ -130,7 +208,7 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
         }
       ],
       paymentTerms: previewData.paymentTerms || 'Net 30',
-      notes: previewData.notes || `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${totalHours.toFixed(2)} hours at ${hourlyRate.toFixed(2)}/hour. Tasks completed: ${completionRequest.completedTasks || 0}/${completionRequest.totalTasks || 0}.`,
+      notes: previewData.notes || `Project completed and approved on ${new Date().toLocaleDateString()}. Total work time: ${totalHours.toFixed(2)} hours at RM${hourlyRate.toFixed(2)}/hour. Tasks completed: ${completionRequest.completedTasks || 0}/${completionRequest.totalTasks || 0}.`,
       terms: previewData.terms || 'Payment is due within 30 days of invoice date. Thank you for your business!'
     };
   };
@@ -341,7 +419,115 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
           </button>
         </div>
       </div>
+
+      {/* Revision History Section */}
+      {revisionHistory.length > 0 && (
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <button
+            onClick={() => setShowRevisionHistory(!showRevisionHistory)}
+            className="flex items-center justify-between w-full text-left mb-4"
+          >
+            <div className="flex items-center space-x-2">
+              <History className="w-5 h-5 text-gray-600" />
+              <h4 className="text-md font-medium text-gray-900">
+                Revision History ({revisionHistory.length})
+              </h4>
+              {revisionHistory.length >= 3 && (
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                  Needs Discussion
+                </span>
+              )}
+            </div>
+            <span className="text-gray-400">{showRevisionHistory ? '▼' : '▶'}</span>
+          </button>
+
+          {showRevisionHistory && (
+            <div className="space-y-3">
+              {revisionHistory.map((revision, index) => (
+                <div key={revision.id} className="bg-gray-50 p-4 rounded-lg border-l-4 border-yellow-500">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center space-x-2">
+                      <MessageSquare className="w-4 h-4 text-yellow-600" />
+                      <span className="font-medium text-gray-900">
+                        Revision #{revision.revisionNumber}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {revision.requestedAt?.toDate()?.toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-700 mb-2">
+                    <strong>Reason:</strong> {revision.reason}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Requested by: {revision.requestedByName}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
+
+    {/* Revision Modal */}
+    {showRevisionModal && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]"
+        style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
+        onClick={(e) => {
+          // Close modal if clicking the backdrop
+          if (e.target === e.currentTarget) {
+            console.log('Clicked backdrop');
+          }
+        }}
+      >
+        <div 
+          className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl border-4 border-red-500"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Request Revision</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Please explain what needs to be improved or changed:
+          </p>
+          <textarea
+            value={revisionReason}
+            onChange={(e) => setRevisionReason(e.target.value)}
+            placeholder="e.g., The design doesn't match the mockup, colors need to be adjusted..."
+            rows={4}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            autoFocus
+          />
+          {revisionHistory.length >= 2 && (
+            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                ⚠️ This will be revision #{revisionHistory.length + 1}. 
+                {revisionHistory.length >= 2 && ' Consider scheduling a meeting to discuss expectations.'}
+              </p>
+            </div>
+          )}
+          <div className="flex items-center justify-end space-x-3 mt-6">
+            <button
+              onClick={() => {
+                console.log('Cancel button clicked');
+                setShowRevisionModal(false);
+                setRevisionReason('');
+              }}
+              className="px-4 py-2 text-gray-700 hover:text-gray-900"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRevisionSubmit}
+              disabled={!revisionReason.trim()}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              Submit Revision Request
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 };

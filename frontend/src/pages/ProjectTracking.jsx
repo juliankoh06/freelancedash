@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit, Trash2, Eye, Play, Pause, Clock, TrendingUp, CheckCircle, AlertCircle, FileText, MessageCircle, Download, Calendar, DollarSign, ArrowLeft, Send, CreditCard, Receipt, Square, StopCircle, XCircle, RefreshCw, ArrowRight, Info, Lock, Paperclip, X } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Eye, Play, Pause, Clock, TrendingUp, CheckCircle, AlertCircle, FileText, MessageCircle, Download, Calendar, DollarSign, ArrowLeft, Send, CreditCard, Receipt, Square, StopCircle, XCircle, RefreshCw, ArrowRight, Info, Lock, Paperclip, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { collection, query, getDocs, addDoc, doc, deleteDoc, updateDoc, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../firebase-config';
@@ -13,14 +13,15 @@ import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import enhancedTimeTrackingService from '../services/enhancedTimeTrackingService';
 import emailScheduler from '../services/emailScheduler';
 import invitationService from '../services/invitationService';
-import DepositInvoiceModal from '../components/DepositInvoiceModal';
 import MilestoneManager from '../components/MilestoneManager';
 import RecurringInvoiceManager from '../components/RecurringInvoiceManager';
+import AddProjectModal from '../components/AddProjectModal';
 
 const ProjectTracking = () => {
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [pendingApprovalProjects, setPendingApprovalProjects] = useState([]);
+  const [pendingInvitationProjects, setPendingInvitationProjects] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -86,8 +87,17 @@ const ProjectTracking = () => {
   const [newComment, setNewComment] = useState('');
   const [uploadFiles, setUploadFiles] = useState([]);
   const [emailSchedulerStatus, setEmailSchedulerStatus] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
   const [realTimeUnsubscribe, setRealTimeUnsubscribe] = useState(null);
+  
+  // Thread/Reply states
+  const [showReplyForm, setShowReplyForm] = useState({});
+  const [replyText, setReplyText] = useState({});
+  const [updateReplies, setUpdateReplies] = useState({});
+  const [expandedThreads, setExpandedThreads] = useState({});
+  
+  // Collapsible section states
+  const [showPendingInvitations, setShowPendingInvitations] = useState(false);
+  const [showPendingApprovals, setShowPendingApprovals] = useState(false);
 
 
   useEffect(() => {
@@ -102,6 +112,7 @@ const ProjectTracking = () => {
         console.log('User authenticated, fetching projects for UID:', user.uid);
         fetchProjects(user.uid);
         fetchPendingApprovalProjects(user.uid);
+        fetchPendingInvitationProjects(user.uid);
         fetchRevisionRequests(user.uid);
         
         // Clean up existing listener
@@ -117,6 +128,7 @@ const ProjectTracking = () => {
         setProjects([]);
         setFilteredProjects([]);
         setPendingApprovalProjects([]);
+        setPendingInvitationProjects([]);
         setRevisionRequests([]);
         
         // Clean up real-time listener
@@ -165,10 +177,15 @@ const ProjectTracking = () => {
       console.log('Updated projects from real-time listener:', projectsData);
       setProjects(projectsData);
 
-      // Update pending approval projects
-      const pendingProjects = projectsData.filter(project => project.status === 'pending_approval');
-      console.log('Pending approval projects:', pendingProjects);
-      setPendingApprovalProjects(pendingProjects);
+      // Update pending approval projects (completed work awaiting client approval)
+      const pendingApprovalProjects = projectsData.filter(project => project.status === 'pending_approval');
+      console.log('Pending approval projects:', pendingApprovalProjects);
+      setPendingApprovalProjects(pendingApprovalProjects);
+
+      // Update pending invitation projects (awaiting client to accept invitation)
+      const pendingInvitationProjects = projectsData.filter(project => project.status === 'pending_invitation');
+      console.log('Pending invitation projects:', pendingInvitationProjects);
+      setPendingInvitationProjects(pendingInvitationProjects);
     }, (error) => {
       console.error('Real-time listener error:', error);
     });
@@ -277,6 +294,37 @@ const ProjectTracking = () => {
     }
   };
 
+  const fetchPendingInvitationProjects = async (userId = null) => {
+    try {
+      const uid = userId || currentUser?.uid;
+      
+      if (!uid) {
+        setPendingInvitationProjects([]);
+        return;
+      }
+
+      // Fetch pending invitation projects
+      const pendingQuery = query(
+        collection(db, 'projects'),
+        where('freelancerId', '==', uid),
+        where('status', '==', 'pending_invitation')
+      );
+      
+      const pendingSnapshot = await getDocs(pendingQuery);
+      const pendingProjects = pendingSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setPendingInvitationProjects(pendingProjects);
+      return pendingProjects;
+    } catch (error) {
+      console.error('Error fetching pending invitation projects:', error);
+      setPendingInvitationProjects([]);
+      return [];
+    }
+  };
+
   const fetchRevisionRequests = async (userId = null) => {
     try {
       const uid = userId || currentUser?.uid;
@@ -337,15 +385,19 @@ const ProjectTracking = () => {
     // Filter by status
     if (statusFilter !== 'all') {
       filtered = filtered.filter(project => project.status === statusFilter);
+    } else {
+      // When showing "all", exclude pending invitation and pending approval from main list
+      // They are shown in their own dedicated sections
+      filtered = filtered.filter(project => 
+        project.status !== 'pending_approval' && 
+        project.status !== 'pending_invitation'
+      );
     }
     
     // Filter by completion status
     if (!showCompleted) {
       filtered = filtered.filter(project => project.status !== 'completed');
     }
-    
-    // Filter out pending approval projects (they should not be visible until approved)
-    filtered = filtered.filter(project => project.status !== 'pending_approval');
     
     console.log('Filtered projects:', {
       searchTerm,
@@ -367,6 +419,8 @@ const ProjectTracking = () => {
     switch (project.status) {
       case 'completed':
         return { text: 'Completed', color: 'bg-green-100 text-green-800' };
+      case 'pending_invitation':
+        return { text: 'Pending Invitation', color: 'bg-blue-100 text-blue-800' };
       case 'pending_approval':
         return { text: 'Pending Approval', color: 'bg-yellow-100 text-yellow-800' };
       case 'in_progress':
@@ -399,7 +453,7 @@ const ProjectTracking = () => {
       const projectData = {
         ...formData,
         freelancerId: currentUser.uid, // Add the user ID to associate project with user
-        status: formData.clientEmail ? 'pending_approval' : 'active', // Set status based on client email
+        status: formData.clientEmail ? 'pending_invitation' : 'active', // Set status based on client email
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -602,6 +656,11 @@ const ProjectTracking = () => {
       }));
       setProgressUpdates(progressData);
       console.log('✅ Progress updates fetched:', progressData.length);
+      
+      // Fetch reply counts for each update
+      for (const update of progressData) {
+        fetchUpdateReplies(update.id);
+      }
 
       // Calculate time entries from tasks
       const timeEntriesData = tasksData
@@ -742,6 +801,90 @@ const ProjectTracking = () => {
     } catch (error) {
       console.error('Error sending comment:', error);
       alert('Failed to send progress update. Please try again.');
+    }
+  };
+
+  // Fetch replies for a specific update
+  const fetchUpdateReplies = async (updateId) => {
+    try {
+      const repliesQuery = query(
+        collection(db, 'progress_update_replies'),
+        where('updateId', '==', updateId),
+        orderBy('createdAt', 'asc')
+      );
+      
+      const snapshot = await getDocs(repliesQuery);
+      const replies = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setUpdateReplies(prev => ({
+        ...prev,
+        [updateId]: replies
+      }));
+      
+      return replies;
+    } catch (error) {
+      console.error('Error fetching replies:', error);
+      return [];
+    }
+  };
+
+  // Handle sending a reply to an update
+  const handleSendReply = async (updateId) => {
+    const text = replyText[updateId];
+    if (!text?.trim() || !trackingProject) return;
+
+    try {
+      const replyData = {
+        updateId: updateId,
+        projectId: trackingProject.id,
+        userId: currentUser?.uid,
+        userName: currentUser?.displayName || currentUser?.email || 'User',
+        userRole: 'freelancer', // Can be 'freelancer' or 'client'
+        comment: text.trim(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      await addDoc(collection(db, 'progress_update_replies'), replyData);
+      
+      // Clear reply input
+      setReplyText(prev => ({ ...prev, [updateId]: '' }));
+      
+      // Refresh replies
+      await fetchUpdateReplies(updateId);
+      
+      // Hide reply form
+      setShowReplyForm(prev => ({ ...prev, [updateId]: false }));
+      
+    } catch (error) {
+      console.error('Error sending reply:', error);
+      alert('Failed to send reply. Please try again.');
+    }
+  };
+
+  // Toggle reply form visibility
+  const toggleReplyForm = (updateId) => {
+    setShowReplyForm(prev => ({
+      ...prev,
+      [updateId]: !prev[updateId]
+    }));
+  };
+
+  // Toggle thread expansion
+  const toggleThread = async (updateId) => {
+    const isExpanded = expandedThreads[updateId];
+    
+    setExpandedThreads(prev => ({
+      ...prev,
+      [updateId]: !isExpanded
+    }));
+    
+    // Fetch replies if expanding and not already fetched
+    if (!isExpanded && !updateReplies[updateId]) {
+      await fetchUpdateReplies(updateId);
     }
   };
 
@@ -1949,7 +2092,8 @@ const ProjectTracking = () => {
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="in_progress">In Progress</option>
-                <option value="pending_approval">Pending Approval</option>
+                <option value="pending_invitation">Pending Invitation</option>
+                <option value="pending_approval">Pending Approval (Completed Work)</option>
                 <option value="completed">Completed</option>
                 <option value="on_hold">On Hold</option>
                 <option value="cancelled">Cancelled</option>
@@ -1980,25 +2124,7 @@ const ProjectTracking = () => {
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
-              <button 
-                onClick={() => {
-                  setActiveTab('form');
-                  setFormMode('add');
-                  setSelectedProject(null);
-                  setFormData({
-                    title: '',
-                    priority: 'medium',
-                    startDate: '',
-                    dueDate: '',
-                    hourlyRate: '',
-                    clientEmail: ''
-                  });
-                }}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Project
-              </button>
+              <AddProjectModal onCreated={fetchProjects} />
             </div>
           </div>
 
@@ -2049,38 +2175,107 @@ const ProjectTracking = () => {
             </div>
           )}
 
-          {/* Pending Approval Projects */}
+          {/* Pending Invitations - Awaiting Client to Accept */}
+          {pendingInvitationProjects.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => setShowPendingInvitations(!showPendingInvitations)}
+              >
+                <div className="flex items-center">
+                  <Send className="w-5 h-5 text-blue-600 mr-2" />
+                  <h3 className="text-lg font-semibold text-blue-800">
+                    Pending Client Invitation ({pendingInvitationProjects.length})
+                  </h3>
+                </div>
+                {showPendingInvitations ? (
+                  <ChevronUp className="w-5 h-5 text-blue-600" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-blue-600" />
+                )}
+              </div>
+              
+              {showPendingInvitations && (
+                <>
+                  <p className="text-blue-700 mb-4 mt-4">
+                    The following projects are waiting for the client to accept your invitation. They will become active once the client joins.
+                  </p>
+                  <div className="space-y-3">
+                    {pendingInvitationProjects.map((project) => (
+                      <div key={project.id} className="bg-white border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{project.title}</h4>
+                            <p className="text-sm text-gray-600">
+                              Client: {project.clientEmail} • Rate: RM{project.hourlyRate}/hour
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              Invitation Sent
+                            </span>
+                            <span className="text-sm text-gray-500">
+                              {project.createdAt ? new Date(project.createdAt.toDate ? project.createdAt.toDate() : project.createdAt).toLocaleDateString() : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Pending Approval Projects - Completed Work Awaiting Client Review */}
           {pendingApprovalProjects.length > 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6">
-              <div className="flex items-center mb-4">
-                <Clock className="w-5 h-5 text-yellow-600 mr-2" />
-                <h3 className="text-lg font-semibold text-yellow-800">Pending Client Approval</h3>
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => setShowPendingApprovals(!showPendingApprovals)}
+              >
+                <div className="flex items-center">
+                  <Clock className="w-5 h-5 text-yellow-600 mr-2" />
+                  <h3 className="text-lg font-semibold text-yellow-800">
+                    Pending Client Approval ({pendingApprovalProjects.length})
+                  </h3>
+                </div>
+                {showPendingApprovals ? (
+                  <ChevronUp className="w-5 h-5 text-yellow-600" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-yellow-600" />
+                )}
               </div>
-              <p className="text-yellow-700 mb-4">
-                The following projects are waiting for client approval. They will become available once the client accepts the invitation.
-              </p>
-              <div className="space-y-3">
-                {pendingApprovalProjects.map((project) => (
-                  <div key={project.id} className="bg-white border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-medium text-gray-900">{project.title}</h4>
-                        <p className="text-sm text-gray-600">
-                          Client: {project.clientEmail} • Rate: RM{project.hourlyRate}/hour
-                        </p>
+              
+              {showPendingApprovals && (
+                <>
+                  <p className="text-yellow-700 mb-4 mt-4">
+                    The following projects have been marked as complete and are waiting for client approval of the finished work.
+                  </p>
+                  <div className="space-y-3">
+                    {pendingApprovalProjects.map((project) => (
+                      <div key={project.id} className="bg-white border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{project.title}</h4>
+                            <p className="text-sm text-gray-600">
+                              Client: {project.clientEmail} • Rate: RM{project.hourlyRate}/hour
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              Awaiting Approval
+                            </span>
+                            <span className="text-sm text-gray-500">
+                              {project.completionRequestedAt ? new Date(project.completionRequestedAt.toDate ? project.completionRequestedAt.toDate() : project.completionRequestedAt).toLocaleDateString() : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          Pending Approval
-                        </span>
-                        <span className="text-sm text-gray-500">
-                          {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
             </div>
           )}
 
@@ -2235,13 +2430,6 @@ const ProjectTracking = () => {
                 </div>
               </div>
               <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => setShowDepositModal(true)}
-                  className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                >
-                  <DollarSign className="w-4 h-4 mr-2" />
-                  Request Deposit
-                </button>
                 <span className="text-sm text-gray-500">Client: {trackingProject?.clientEmail || 'Unknown'}</span>
                 <div className="flex items-center space-x-2">
                   <TrendingUp className="w-5 h-5 text-green-600" />
@@ -2633,47 +2821,6 @@ const ProjectTracking = () => {
                             <Clock className="w-4 h-4 mr-2" />
                             {emailSchedulerStatus ? 'Stop Auto-Emails' : 'Start Auto-Emails'}
                           </button>
-                          <button
-                            onClick={() => {
-                              // Prepare invoice data
-                              const invoiceData = {
-                                projectId: trackingProject.id,
-                                projectTitle: trackingProject.title,
-                                clientId: trackingProject.clientId,
-                                clientName: trackingProject.clientName,
-                                clientEmail: trackingProject.clientEmail,
-                                freelancerId: currentUser?.uid,
-                                freelancerName: currentUser?.displayName || currentUser?.email,
-                                freelancerEmail: currentUser?.email,
-                                invoiceNumber: `INV-${Date.now()}`,
-                                issueDate: new Date(),
-                                dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-                                currency: 'RM',
-                                lineItems: [
-                                  {
-                                    description: `Work on ${trackingProject.title}`,
-                                    quantity: 1,
-                                    rate: 0,
-                                    amount: 0
-                                  }
-                                ],
-                                subtotal: 0,
-                                taxRate: 0.06,
-                                taxAmount: 0,
-                                totalAmount: 0,
-                                paymentTerms: 'Net 30',
-                                notes: '',
-                                terms: 'Payment is due within 30 days of invoice date.',
-                                status: 'draft'
-                              };
-                              setInvoicePreviewData(invoiceData);
-                              setShowInvoicePreview(true);
-                            }}
-                            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Create Invoice
-                          </button>
                         </div>
                       </div>
 
@@ -2807,7 +2954,7 @@ const ProjectTracking = () => {
                           <div className="text-center py-8 text-gray-500">
                             <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                             <p>No invoices found for this project.</p>
-                            <p className="text-sm">Click "Create Invoice" to create one.</p>
+                            <p className="text-sm">Invoices are automatically generated from contract milestones.</p>
                           </div>
                         )}
                       </div>
@@ -2935,6 +3082,83 @@ const ProjectTracking = () => {
                                         <ArrowRight className="w-4 h-4 text-gray-400" />
                                         <span className="font-medium text-green-600">{update.newProgress}%</span>
                                         <span className="text-xs text-green-600">+{update.progressChange}%</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Thread Actions */}
+                                  <div className="mt-3 flex items-center space-x-4 text-sm">
+                                    <button
+                                      onClick={() => toggleThread(update.id)}
+                                      className="flex items-center text-gray-600 hover:text-blue-600 transition-colors"
+                                    >
+                                      <MessageCircle className="w-4 h-4 mr-1" />
+                                      {updateReplies[update.id]?.length || 0} {updateReplies[update.id]?.length === 1 ? 'Reply' : 'Replies'}
+                                    </button>
+                                    <button
+                                      onClick={() => toggleReplyForm(update.id)}
+                                      className="text-gray-600 hover:text-blue-600 transition-colors"
+                                    >
+                                      Reply
+                                    </button>
+                                  </div>
+                                  
+                                  {/* Threaded Replies */}
+                                  {expandedThreads[update.id] && updateReplies[update.id] && updateReplies[update.id].length > 0 && (
+                                    <div className="mt-4 pl-6 border-l-2 border-gray-200 space-y-3">
+                                      {updateReplies[update.id].map((reply) => (
+                                        <div key={reply.id} className="bg-gray-50 rounded-lg p-3">
+                                          <div className="flex items-center justify-between mb-1">
+                                            <span className="text-sm font-medium text-gray-900">
+                                              {reply.userName}
+                                              <span className="ml-2 text-xs text-gray-500 font-normal">
+                                                ({reply.userRole})
+                                              </span>
+                                            </span>
+                                            <span className="text-xs text-gray-500">
+                                              {reply.createdAt?.toDate ? 
+                                                reply.createdAt.toDate().toLocaleString() : 
+                                                new Date(reply.createdAt).toLocaleString()
+                                              }
+                                            </span>
+                                          </div>
+                                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                            {reply.comment}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Reply Form */}
+                                  {showReplyForm[update.id] && (
+                                    <div className="mt-4 pl-6 border-l-2 border-blue-200">
+                                      <div className="flex space-x-2">
+                                        <textarea
+                                          value={replyText[update.id] || ''}
+                                          onChange={(e) => setReplyText(prev => ({
+                                            ...prev,
+                                            [update.id]: e.target.value
+                                          }))}
+                                          placeholder="Write a reply..."
+                                          rows={2}
+                                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
+                                        />
+                                        <div className="flex flex-col space-y-1">
+                                          <button
+                                            onClick={() => handleSendReply(update.id)}
+                                            disabled={!replyText[update.id]?.trim()}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                          >
+                                            <Send className="w-4 h-4" />
+                                          </button>
+                                          <button
+                                            onClick={() => toggleReplyForm(update.id)}
+                                            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                                          >
+                                            <X className="w-4 h-4" />
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   )}
@@ -3884,29 +4108,6 @@ const ProjectTracking = () => {
             </form>
           </div>
         </div>
-      )}
-
-
-      {/* Deposit Invoice Modal */}
-      {showDepositModal && trackingProject && (
-        <DepositInvoiceModal
-          project={trackingProject}
-          currentUser={currentUser}
-          onConfirm={async (invoiceData) => {
-            try {
-              const result = await invoiceService.createInvoice(invoiceData);
-              if (result.success) {
-                setShowDepositModal(false);
-                await fetchProjectDetails(trackingProject.id);
-                alert('✅ Deposit invoice created successfully!');
-              }
-            } catch (error) {
-              console.error('Error creating deposit invoice:', error);
-              alert('Failed to create deposit invoice. Please try again.');
-            }
-          }}
-          onCancel={() => setShowDepositModal(false)}
-        />
       )}
 
       {/* Revision Request Modal */}

@@ -17,11 +17,37 @@ const ClientProjectProgress = ({ user }) => {
 
   const fetchClientProjects = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/api/projects?clientId=${user.id}`);
-      const data = await response.json();
-      setProjects(data);
+      console.log('🔍 Fetching projects for client:', user.email || user.uid);
+      
+      // Try fetching by email first (primary method for linking clients to projects)
+      let response = await fetch(`http://localhost:5000/api/projects/client-email/${encodeURIComponent(user.email)}`);
+      let data = await response.json();
+      
+      console.log('📊 Projects response:', data);
+      
+      // If API returns success structure, extract data
+      let allProjects = [];
+      if (data.success && data.data) {
+        allProjects = data.data;
+      } else if (Array.isArray(data)) {
+        allProjects = data;
+      }
+      
+      // Log all project statuses to debug
+      console.log('📋 All projects with statuses:', allProjects.map(p => ({
+        title: p.title,
+        status: p.status,
+        clientEmail: p.clientEmail
+      })));
+      
+      // Filter to show only active and completed projects (not pending_contract, draft, etc.)
+      // For now, show ALL projects to help debug
+      setProjects(allProjects);
+      console.log('✅ Showing projects:', allProjects.length);
+      
     } catch (error) {
-      console.error('Error fetching projects:', error);
+      console.error('❌ Error fetching projects:', error);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -31,9 +57,13 @@ const ClientProjectProgress = ({ user }) => {
     switch (status) {
       case 'completed':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'active':
       case 'in-progress':
         return <Clock className="w-5 h-5 text-blue-500" />;
+      case 'pending_contract':
+      case 'pending_invitation':
       case 'pending':
+      case 'draft':
         return <AlertCircle className="w-5 h-5 text-yellow-500" />;
       default:
         return <FolderOpen className="w-5 h-5 text-gray-500" />;
@@ -44,12 +74,34 @@ const ClientProjectProgress = ({ user }) => {
     switch (status) {
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'active':
       case 'in-progress':
         return 'bg-blue-100 text-blue-800';
+      case 'pending_contract':
+        return 'bg-orange-100 text-orange-800';
+      case 'pending_invitation':
       case 'pending':
+      case 'draft':
         return 'bg-yellow-100 text-yellow-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+  
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'pending_contract':
+        return 'Awaiting Contract';
+      case 'pending_invitation':
+        return 'Invitation Sent';
+      case 'active':
+        return 'Active';
+      case 'completed':
+        return 'Completed';
+      case 'draft':
+        return 'Draft';
+      default:
+        return status;
     }
   };
 

@@ -11,6 +11,7 @@ import {
   getDoc,
   onSnapshot 
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../firebase-config';
 import { Invoice, INVOICE_STATUSES } from '../models/Invoice';
 
@@ -19,38 +20,43 @@ class InvoiceService {
     this.collectionName = 'invoices';
   }
 
-  // Create a new invoice
+  // Create a new invoice with server-side validation
   async createInvoice(invoiceData) {
     try {
-      console.log('🔍 Creating invoice:', invoiceData);
+      console.log('🔍 Creating invoice with server validation:', invoiceData);
       
-      const invoice = new Invoice(invoiceData);
-      const validation = invoice.validate();
-      
-      if (!validation.isValid) {
-        throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
-      }
-
-      // Generate invoice number if not provided
-      if (!invoice.invoiceNumber) {
-        invoice.generateInvoiceNumber();
-      }
-
-      // Calculate totals
-      invoice.calculateTotals();
-
-      const docRef = await addDoc(collection(db, this.collectionName), {
-        ...invoice.toFirebase(),
-        createdAt: new Date(),
-        updatedAt: new Date()
+      // Send to backend for server-side validation and calculation
+      const response = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify(invoiceData)
       });
 
-      console.log('✅ Invoice created with ID:', docRef.id);
-      return { success: true, id: docRef.id, invoice };
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create invoice');
+      }
+
+      const result = await response.json();
+      console.log('✅ Invoice created with server validation:', result.data);
+      return { success: true, id: result.data.id, invoice: result.data };
     } catch (error) {
       console.error('❌ Error creating invoice:', error);
       throw error;
     }
+  }
+
+  // Get authentication token
+  async getAuthToken() {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (user) {
+      return await user.getIdToken();
+    }
+    throw new Error('User not authenticated');
   }
 
   // Create invoice from transaction

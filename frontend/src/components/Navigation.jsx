@@ -8,7 +8,8 @@ import {
   User,
   Menu, 
   X,
-  LogOut
+  LogOut,
+  AlertCircle
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase-config';
@@ -23,6 +24,7 @@ const Navigation = ({ user }) => {
     { name: 'Projects', href: '/projects', icon: FolderOpen },
     { name: 'Invoices', href: '/invoices', icon: FileText },
     { name: 'Clients', href: '/clients', icon: Users },
+    { name: 'Disputes', href: '/disputes', icon: AlertCircle },
   ];
 
   const isActive = (path) => location.pathname === path;
