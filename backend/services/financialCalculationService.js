@@ -1,8 +1,8 @@
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 
 class FinancialCalculationService {
   constructor() {
-    this.db = admin.firestore();
+    this.db = db;
   }
 
   // Calculate project financial summary

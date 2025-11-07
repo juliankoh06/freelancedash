@@ -1,9 +1,5 @@
 const Contract = require('../models/Contract');
 
-/**
- * Middleware to ensure an active, fully-signed contract exists for a project
- * before allowing certain actions (time tracking, invoicing, payments)
- */
 const requireActiveContract = async (req, res, next) => {
   try {
     const { projectId } = req.params || req.body;
@@ -63,7 +59,6 @@ const requireActiveContract = async (req, res, next) => {
 
 /**
  * Middleware to check contract status but allow access
- * Used for read-only operations where we want to show contract warnings
  */
 const checkContractStatus = async (req, res, next) => {
   try {

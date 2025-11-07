@@ -3,7 +3,6 @@ import {
   Search, 
   Filter, 
   Plus, 
-  Eye, 
   Download, 
   Edit, 
   Trash2,
@@ -12,15 +11,19 @@ import {
   AlertCircle,
   FileText,
   Send,
-  DollarSign
+  DollarSign,
+  Bell,
+  Settings
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase-config';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import invoiceService from '../services/invoiceService';
+import contractService from '../services/contractService';
 import { downloadInvoicePDF } from '../utils/pdfGenerator';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
+import ReminderSettingsModal from '../components/ReminderSettingsModal';
 
 const Invoices = () => {
   const navigate = useNavigate();
@@ -30,13 +33,13 @@ const Invoices = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [showPreview, setShowPreview] = useState(false);
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const [newInvoiceData, setNewInvoiceData] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [selectedProjectForInvoice, setSelectedProjectForInvoice] = useState(null);
-  const [showProjectSelector, setShowProjectSelector] = useState(false);
+  // const [projects, setProjects] = useState([]);
+  // const [selectedProjectForInvoice, setSelectedProjectForInvoice] = useState(null);
+  // const [showProjectSelector, setShowProjectSelector] = useState(false);
+  const [showReminderSettings, setShowReminderSettings] = useState(false);
+  const [invoiceContracts, setInvoiceContracts] = useState({});
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -46,39 +49,63 @@ const Invoices = () => {
   }, []);
 
   useEffect(() => {
-    if (currentUser?.uid) {
-      fetchInvoices();
-      fetchProjects();
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
     filterInvoices();
   }, [invoices, searchTerm, statusFilter]);
 
-  const fetchInvoices = async () => {
-    try {
-      if (!currentUser?.uid) {
-        console.log('⏳ Waiting for authentication...');
-        setInvoices([]);
-        return;
-      }
+  // Fetch contract information for invoices with projects
+  useEffect(() => {
+    const fetchContractsForInvoices = async () => {
+      const contractPromises = invoices
+        .filter(invoice => invoice.projectId)
+        .map(async (invoice) => {
+          try {
+            const result = await contractService.getContractByProject(invoice.projectId);
+            if (result.success && result.contract) {
+              return { invoiceId: invoice.id, contract: result.contract };
+            }
+          } catch (error) {
+            console.error(`Error fetching contract for project ${invoice.projectId}:`, error);
+          }
+          return null;
+        });
 
-      console.log('📥 Fetching invoices for user:', currentUser.uid);
-      setLoading(true);
-      const result = await invoiceService.getFreelancerInvoices(currentUser.uid);
-      
-      if (result.success) {
-        setInvoices(result.invoices);
-        console.log('✅ Loaded', result.invoices.length, 'invoices');
-      }
-    } catch (error) {
+      const results = await Promise.all(contractPromises);
+      const contractsMap = {};
+      results.forEach(result => {
+        if (result) {
+          contractsMap[result.invoiceId] = result.contract;
+        }
+      });
+      setInvoiceContracts(contractsMap);
+    };
+
+    if (invoices.length > 0) {
+      fetchContractsForInvoices();
+    }
+  }, [invoices]);
+
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      setInvoices([]);
+      return;
+    }
+    setLoading(true);
+    const q = query(
+      collection(db, 'invoices'),
+      where('freelancerId', '==', currentUser.uid),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const invoicesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setInvoices(invoicesData);
+      setLoading(false);
+    }, (error) => {
       console.error('Error fetching invoices:', error);
       setInvoices([]);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
 
   const filterInvoices = () => {
     let filtered = invoices;
@@ -104,7 +131,6 @@ const Invoices = () => {
     switch (status) {
       case 'paid': return 'text-green-600 bg-green-100';
       case 'sent': return 'text-blue-600 bg-blue-100';
-      case 'draft': return 'text-gray-600 bg-gray-100';
       case 'overdue': return 'text-red-600 bg-red-100';
       default: return 'text-gray-600 bg-gray-100';
     }
@@ -140,22 +166,32 @@ const Invoices = () => {
     }
   };
 
+  const handleDownloadContract = async (invoice) => {
+    try {
+      const contract = invoiceContracts[invoice.id];
+      
+      if (!contract || !contract.signedContractPdfUrl) {
+        alert('No signed contract available for this invoice');
+        return;
+      }
+
+      window.open(contract.signedContractPdfUrl, '_blank');
+    } catch (error) {
+      console.error('Error downloading contract:', error);
+      alert('Failed to download contract: ' + error.message);
+    }
+  };
+
   const handleDeleteInvoice = async (invoiceId) => {
     if (!window.confirm('Are you sure you want to delete this invoice?')) return;
     
     try {
-      await invoiceService.deleteInvoice(invoiceId);
-      await fetchInvoices();
-      alert('Invoice deleted successfully');
+  await invoiceService.deleteInvoice(invoiceId);
+  alert('Invoice deleted successfully');
     } catch (error) {
       console.error('Error deleting invoice:', error);
       alert('Failed to delete invoice');
     }
-  };
-
-  const handleViewInvoice = (invoice) => {
-    setSelectedInvoice(invoice);
-    setShowPreview(true);
   };
 
   const handleSendInvoice = async (invoice) => {
@@ -165,7 +201,6 @@ const Invoices = () => {
       const result = await invoiceService.sendInvoice(invoice.id);
       if (result.success) {
         alert('✅ Invoice sent successfully!');
-        await fetchInvoices();
       } else {
         throw new Error(result.error || 'Failed to send invoice');
       }
@@ -179,44 +214,24 @@ const Invoices = () => {
     if (!window.confirm('Mark this invoice as paid?')) return;
     
     try {
-      await invoiceService.markInvoiceAsPaid(invoiceId);
-      await fetchInvoices();
-      alert('✅ Invoice marked as paid!');
+  await invoiceService.markInvoiceAsPaid(invoiceId);
+  alert('✅ Invoice marked as paid!');
     } catch (error) {
       console.error('Error marking invoice as paid:', error);
       alert('Failed to mark invoice as paid');
     }
   };
 
-  const fetchProjects = async () => {
-    try {
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        where('freelancerId', '==', currentUser.uid)
-      );
-      const projectsSnapshot = await getDocs(projectsQuery);
-      const projectsData = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setProjects(projectsData);
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    }
-  };
+  // Project selector logic removed
 
   const handleCreateInvoice = () => {
-    setShowProjectSelector(true);
-  };
-
-  const handleProjectSelected = (project) => {
-    // Prepare invoice data for the selected project
+    // Create blank invoice data without project link
     const invoiceData = {
-      projectId: project.id,
-      projectTitle: project.title,
-      clientId: project.clientId,
-      clientName: project.clientName,
-      clientEmail: project.clientEmail,
+      projectId: null,
+      projectTitle: '',
+      clientId: null,
+      clientName: '',
+      clientEmail: '',
       freelancerId: currentUser?.uid,
       freelancerName: currentUser?.displayName || currentUser?.email,
       freelancerEmail: currentUser?.email,
@@ -226,7 +241,7 @@ const Invoices = () => {
       currency: 'RM',
       lineItems: [
         {
-          description: `Work on ${project.title}`,
+          description: '',
           quantity: 1,
           rate: 0,
           amount: 0
@@ -239,11 +254,10 @@ const Invoices = () => {
       paymentTerms: 'Net 30',
       notes: '',
       terms: 'Payment is due within 30 days of invoice date.',
-      status: 'draft'
+      status: 'sent'
     };
     
     setNewInvoiceData(invoiceData);
-    setShowProjectSelector(false);
     setShowCreateInvoice(true);
   };
 
@@ -251,7 +265,6 @@ const Invoices = () => {
     switch (invoiceType) {
       case 'deposit': return 'bg-purple-100 text-purple-800';
       case 'milestone': return 'bg-blue-100 text-blue-800';
-      case 'recurring': return 'bg-green-100 text-green-800';
       case 'final': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -327,11 +340,19 @@ const Invoices = () => {
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           >
             <option value="all">All Invoices</option>
-            <option value="draft">Draft</option>
             <option value="sent">Sent</option>
             <option value="paid">Paid</option>
             <option value="overdue">Overdue</option>
           </select>
+
+          <button 
+            onClick={() => setShowReminderSettings(true)}
+            className="flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Configure automatic payment reminders"
+          >
+            <Bell className="w-4 h-4 mr-2" />
+            Reminder Settings
+          </button>
 
           <button 
             onClick={handleCreateInvoice}
@@ -407,7 +428,16 @@ const Invoices = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.projectTitle || 'N/A'}
+                      <div className="flex items-center gap-2">
+                        {invoice.projectTitle || (invoice.projectId ? 'N/A' : 
+                          <span className="text-gray-500 italic">Custom Invoice</span>
+                        )}
+                        {!invoice.projectId && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                            No Project
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {invoice.clientName || 'N/A'}
@@ -418,7 +448,7 @@ const Invoices = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
                         {getStatusIcon(invoice.status)}
-                        <span className="ml-1">{invoice.getStatusText?.() || invoice.status || 'draft'}</span>
+                        <span className="ml-1">{invoice.getStatusText?.() || invoice.status || 'sent'}</span>
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -433,22 +463,6 @@ const Invoices = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center space-x-2">
-                        <button 
-                          onClick={() => handleViewInvoice(invoice)}
-                          className="text-gray-600 hover:text-gray-800"
-                          title="View Invoice"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {invoice.status === 'draft' && (
-                          <button 
-                            onClick={() => handleSendInvoice(invoice)}
-                            className="text-blue-600 hover:text-blue-800"
-                            title="Send to Client"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        )}
                         {invoice.status === 'sent' && (
                           <button 
                             onClick={() => handleMarkAsPaid(invoice.id)}
@@ -461,17 +475,49 @@ const Invoices = () => {
                         <button 
                           onClick={() => handleDownloadInvoice(invoice)}
                           className="text-purple-600 hover:text-purple-800"
-                          title="Download PDF"
+                          title="Download Invoice PDF"
                         >
                           <Download className="w-4 h-4" />
                         </button>
-                        <button 
-                          onClick={() => handleDeleteInvoice(invoice.id)}
-                          className="text-red-600 hover:text-red-800"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {(() => {
+                          const contract = invoiceContracts[invoice.id];
+                          if (!contract) return null;
+                          
+                          const hasPdfUrl = contract?.signedContractPdfUrl;
+                          const freelancerSigned = contract?.freelancerSigned ?? contract?.freelancerSignedAt;
+                          const clientSigned = contract?.clientSigned ?? contract?.clientSignedAt;
+                          const bothSigned = !!(freelancerSigned && clientSigned);
+                          
+                          // If both signed but no PDF, show a message
+                          if (bothSigned && !hasPdfUrl) {
+                            return (
+                              <button 
+                                className="text-gray-400 cursor-not-allowed"
+                                title="Contract PDF is being generated..."
+                                disabled
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            );
+                          }
+                          
+                          // If PDF exists, show download button
+                          if (hasPdfUrl) {
+                            return (
+                              <button 
+                                onClick={() => handleDownloadContract(invoice)}
+                                className="text-teal-600 hover:text-teal-800"
+                                title="Download Signed Contract PDF"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            );
+                          }
+                          
+                          // Not fully signed yet
+                          return null;
+                        })()}
+                        {/* Delete button removed to prevent invoice deletion by any user */}
                       </div>
                     </td>
                   </tr>
@@ -482,53 +528,6 @@ const Invoices = () => {
         </div>
       </div>
 
-      {/* Project Selector Modal */}
-      {showProjectSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-gray-900">Select Project</h2>
-                <button
-                  onClick={() => setShowProjectSelector(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <FileText className="w-6 h-6" />
-                </button>
-              </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Choose a project to create an invoice for:
-              </p>
-
-              {projects.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-gray-500 mb-4">No projects found.</p>
-                  <button
-                    onClick={() => navigate('/project-tracking')}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Create a Project First
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {projects.map((project) => (
-                    <button
-                      key={project.id}
-                      onClick={() => handleProjectSelected(project)}
-                      className="w-full text-left p-4 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                    >
-                      <div className="font-medium text-gray-900">{project.title}</div>
-                      <div className="text-sm text-gray-600">Client: {project.clientName}</div>
-                      <div className="text-sm text-gray-500">Status: {project.status}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Create Invoice Modal */}
       {showCreateInvoice && newInvoiceData && (
@@ -547,35 +546,12 @@ const Invoices = () => {
                 alert('✅ Invoice created and sent successfully!');
                 setShowCreateInvoice(false);
                 setNewInvoiceData(null);
-                await fetchInvoices();
               } else {
                 throw new Error(result.error || 'Failed to create invoice');
               }
             } catch (error) {
               console.error('Error creating invoice:', error);
               alert('Failed to create invoice: ' + error.message);
-            }
-          }}
-          onSaveDraft={async (editedData) => {
-            try {
-              const result = await invoiceService.createInvoice({
-                ...editedData,
-                status: 'draft',
-                createdAt: new Date(),
-                updatedAt: new Date()
-              });
-
-              if (result.success) {
-                alert('✅ Invoice saved as draft!');
-                setShowCreateInvoice(false);
-                setNewInvoiceData(null);
-                await fetchInvoices();
-              } else {
-                throw new Error(result.error || 'Failed to save draft');
-              }
-            } catch (error) {
-              console.error('Error saving draft:', error);
-              alert('Failed to save draft: ' + error.message);
             }
           }}
           onCancel={() => {
@@ -585,20 +561,14 @@ const Invoices = () => {
         />
       )}
 
-      {/* Invoice Preview Modal */}
-      {showPreview && selectedInvoice && (
-        <InvoicePreviewModal
-          invoice={selectedInvoice}
-          onClose={() => {
-            setShowPreview(false);
-            setSelectedInvoice(null);
+      {/* Reminder Settings Modal */}
+      {showReminderSettings && currentUser && (
+        <ReminderSettingsModal
+          currentUser={currentUser}
+          onClose={() => setShowReminderSettings(false)}
+          onSave={() => {
+            console.log('Reminder settings saved!');
           }}
-          onSend={async () => {
-            await handleSendInvoice(selectedInvoice);
-            setShowPreview(false);
-            setSelectedInvoice(null);
-          }}
-          onDownload={() => handleDownloadInvoice(selectedInvoice)}
         />
       )}
     </div>

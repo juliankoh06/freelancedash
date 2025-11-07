@@ -13,16 +13,17 @@ class Task {
     this.estimatedHours = data.estimatedHours;
     this.actualHours = data.actualHours;
     this.progress = data.progress || 0; // 0-100
-    this.tags = data.tags || [];
-    this.createdAt = data.createdAt || new Date();
-    this.updatedAt = data.updatedAt || new Date();
-    this.completedAt = data.completedAt;
+  this.billable = typeof data.billable === 'boolean' ? data.billable : true; // default to true
+  this.createdAt = data.createdAt || new Date();
+  this.updatedAt = data.updatedAt || new Date();
+  this.completedAt = data.completedAt;
   }
 
   static async create(taskData) {
     try {
       const taskRef = await db.collection('tasks').add({
         ...taskData,
+        billable: typeof taskData.billable === 'boolean' ? taskData.billable : true,
         createdAt: new Date(),
         updatedAt: new Date()
       });

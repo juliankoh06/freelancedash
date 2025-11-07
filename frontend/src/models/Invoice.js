@@ -10,18 +10,14 @@ export class Invoice {
     this.clientId = data.clientId || null;
     this.clientEmail = data.clientEmail || '';
     this.clientName = data.clientName || '';
-    this.clientAddress = data.clientAddress || '';
     
     // Freelancer Information
     this.freelancerId = data.freelancerId || null;
     this.freelancerName = data.freelancerName || '';
     this.freelancerEmail = data.freelancerEmail || '';
-    this.freelancerAddress = data.freelancerAddress || '';
-    this.freelancerPhone = data.freelancerPhone || '';
-    this.freelancerBusinessNumber = data.freelancerBusinessNumber || '';
     
     // Invoice Details
-    this.invoiceType = data.invoiceType || 'standard'; // standard, deposit, milestone, recurring, final
+  this.invoiceType = data.invoiceType || 'standard'; // standard, deposit, milestone, final
     this.status = data.status || 'draft'; // draft, sent, paid, overdue, cancelled
     this.issueDate = data.issueDate || new Date();
     this.dueDate = data.dueDate || null;
@@ -31,7 +27,7 @@ export class Invoice {
     this.depositPercentage = data.depositPercentage || 0;
     this.relatedInvoiceId = data.relatedInvoiceId || null; // Link to deposit/parent invoice
     this.milestoneId = data.milestoneId || null;
-    this.recurringInvoiceId = data.recurringInvoiceId || null;
+  // this.recurringInvoiceId = data.recurringInvoiceId || null;
     
     // Financial Details
     this.subtotal = data.subtotal || 0;
@@ -105,7 +101,7 @@ export class Invoice {
     switch(this.invoiceType) {
       case 'deposit': prefix = 'DEP'; break;
       case 'milestone': prefix = 'MIL'; break;
-      case 'recurring': prefix = 'REC'; break;
+  // case 'recurring': prefix = 'REC'; break;
       case 'final': prefix = 'FIN'; break;
       default: prefix = 'INV';
     }
@@ -138,7 +134,7 @@ export class Invoice {
     switch (this.invoiceType) {
       case 'deposit': return 'purple';
       case 'milestone': return 'blue';
-      case 'recurring': return 'teal';
+  // case 'recurring': return 'teal';
       case 'final': return 'green';
       default: return 'gray';
     }
@@ -149,7 +145,7 @@ export class Invoice {
     switch (this.invoiceType) {
       case 'deposit': return 'Deposit';
       case 'milestone': return 'Milestone';
-      case 'recurring': return 'Recurring';
+  // case 'recurring': return 'Recurring';
       case 'final': return 'Final Payment';
       default: return 'Standard';
     }
@@ -170,7 +166,6 @@ export class Invoice {
     // Client ID is optional - can use clientEmail instead
     if (!this.clientId && !this.clientEmail) errors.push('Client ID or Client Email is required');
     if (!this.freelancerId) errors.push('Freelancer ID is required');
-    if (!this.projectId) errors.push('Project ID is required');
     if (!this.dueDate) errors.push('Due date is required');
     if (this.lineItems.length === 0) errors.push('At least one line item is required');
     
@@ -204,7 +199,7 @@ export class Invoice {
       depositPercentage: this.depositPercentage,
       relatedInvoiceId: this.relatedInvoiceId,
       milestoneId: this.milestoneId,
-      recurringInvoiceId: this.recurringInvoiceId,
+  // recurringInvoiceId: this.recurringInvoiceId,
       subtotal: this.subtotal,
       taxRate: this.taxRate,
       taxAmount: this.taxAmount,
@@ -247,7 +242,7 @@ export class Invoice {
       freelancerEmail: freelancer?.email || '',
       dueDate: transaction.dueDate,
       subtotal: transaction.amount,
-      currency: transaction.currency
+
     });
 
     // Add line item from transaction
@@ -267,7 +262,7 @@ export const INVOICE_TYPES = {
   STANDARD: 'standard',
   DEPOSIT: 'deposit',
   MILESTONE: 'milestone',
-  RECURRING: 'recurring',
+  // RECURRING: 'recurring',
   FINAL: 'final'
 };
 

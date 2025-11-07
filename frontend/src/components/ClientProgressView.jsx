@@ -1,93 +1,189 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, onSnapshot, orderBy, addDoc, updateDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase-config';
-import { 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
-  FileText, 
-  MessageCircle, 
+import React, { useState, useEffect } from "react";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  addDoc,
+} from "firebase/firestore";
+import { db, auth } from "../firebase-config";
+import {
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+  MessageCircle,
   Download,
-  Calendar,
-  DollarSign,
   TrendingUp,
-  Eye,
-  Send
-} from 'lucide-react';
+  Send,
+  User,
+  Paperclip,
+} from "lucide-react";
 
 const ClientProgressView = ({ project, onClose }) => {
   const [projectDetails, setProjectDetails] = useState(project);
   const [tasks, setTasks] = useState([]);
   const [progressUpdates, setProgressUpdates] = useState([]);
   const [timeEntries, setTimeEntries] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [newComment, setNewComment] = useState('');
+  const [activeTab, setActiveTab] = useState("updates");
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Reply management
+  const [updateReplies, setUpdateReplies] = useState({});
+  const [replyText, setReplyText] = useState({});
+  const [showReplyForm, setShowReplyForm] = useState({});
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      setCurrentUser(user);
+    }
+  }, []);
 
   useEffect(() => {
     if (project?.id) {
       fetchProjectDetails();
-      subscribeToRealTimeUpdates();
+      const cleanup = subscribeToRealTimeUpdates();
+      return () => {
+        if (cleanup) cleanup();
+      };
     }
-    return () => {
-      // Cleanup subscriptions
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
   const fetchProjectDetails = async () => {
     try {
       setLoading(true);
-      
+
       // Fetch project tasks
       const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('projectId', '==', project.id),
-        orderBy('createdAt', 'desc')
+        collection(db, "tasks"),
+        where("projectId", "==", project.id),
+        orderBy("createdAt", "desc"),
       );
       const tasksSnapshot = await getDocs(tasksQuery);
-      const tasksData = tasksSnapshot.docs.map(doc => ({
+      const tasksData = tasksSnapshot.docs.map((doc) => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       }));
       setTasks(tasksData);
 
       // Fetch progress updates
       const progressQuery = query(
-        collection(db, 'progress_updates'),
-        where('projectId', '==', project.id),
-        orderBy('updatedAt', 'desc')
+        collection(db, "progress_updates"),
+        where("projectId", "==", project.id),
+        orderBy("createdAt", "desc"),
       );
       const progressSnapshot = await getDocs(progressQuery);
-      const progressData = progressSnapshot.docs.map(doc => ({
+      const progressData = progressSnapshot.docs.map((doc) => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       }));
       setProgressUpdates(progressData);
 
+      // Fetch replies for each update
+      for (const update of progressData) {
+        fetchUpdateReplies(update.id);
+      }
+
       // Calculate time entries from tasks
       const timeEntriesData = tasksData
-        .filter(task => task.timeSpent > 0)
-        .map(task => ({
+        .filter((task) => task.timeSpent > 0)
+        .map((task) => ({
           id: task.id,
           taskTitle: task.title,
           hours: task.timeSpent,
           date: task.updatedAt?.toDate() || new Date(),
-          status: task.status
+          status: task.status,
         }));
       setTimeEntries(timeEntriesData);
-
     } catch (error) {
-      console.error('Error fetching project details:', error);
+      console.error("Error fetching project details:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch replies for a specific update
+  const fetchUpdateReplies = async (updateId) => {
+    try {
+      const repliesQuery = query(
+        collection(db, "project_comments"),
+        where("updateId", "==", updateId),
+        where("type", "==", "thread_reply"),
+        orderBy("createdAt", "asc"),
+      );
+      const snapshot = await getDocs(repliesQuery);
+      const replies = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setUpdateReplies((prev) => ({
+        ...prev,
+        [updateId]: replies,
+      }));
+      return replies;
+    } catch (error) {
+      console.error("Error fetching replies:", error);
+      return [];
+    }
+  };
+
+  // Handle sending a reply to an update
+  const handleSendReply = async (updateId) => {
+    const text = replyText[updateId];
+    if (!text?.trim() || !project) return;
+
+    try {
+      const replyData = {
+        updateId: updateId,
+        projectId: project.id,
+        userId: currentUser?.uid,
+        userName: currentUser?.displayName || currentUser?.email || "Client",
+        userRole: "client",
+        comment: text.trim(),
+        type: "thread_reply",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await addDoc(collection(db, "project_comments"), replyData);
+
+      // Clear reply input
+      setReplyText((prev) => ({ ...prev, [updateId]: "" }));
+
+      // Refresh replies
+      await fetchUpdateReplies(updateId);
+
+      // Hide reply form
+      setShowReplyForm((prev) => ({ ...prev, [updateId]: false }));
+    } catch (error) {
+      console.error("Error sending reply:", error);
+      alert("Failed to send reply. Please try again.");
+    }
+  };
+
+  // Toggle reply form visibility
+  const toggleReplyForm = (updateId) => {
+    setShowReplyForm((prev) => ({
+      ...prev,
+      [updateId]: !prev[updateId],
+    }));
+
+    // Load replies if not already loaded
+    if (!updateReplies[updateId]) {
+      fetchUpdateReplies(updateId);
     }
   };
 
   const subscribeToRealTimeUpdates = () => {
     // Subscribe to real-time project updates
     const projectQuery = query(
-      collection(db, 'projects'),
-      where('__name__', '==', project.id)
+      collection(db, "projects"),
+      where("__name__", "==", project.id),
     );
 
     const unsubscribeProject = onSnapshot(projectQuery, (snapshot) => {
@@ -99,32 +195,39 @@ const ClientProgressView = ({ project, onClose }) => {
 
     // Subscribe to real-time task updates
     const tasksQuery = query(
-      collection(db, 'tasks'),
-      where('projectId', '==', project.id),
-      orderBy('updatedAt', 'desc')
+      collection(db, "tasks"),
+      where("projectId", "==", project.id),
+      orderBy("updatedAt", "desc"),
     );
 
     const unsubscribeTasks = onSnapshot(tasksQuery, (snapshot) => {
-      const tasksData = snapshot.docs.map(doc => ({
+      const tasksData = snapshot.docs.map((doc) => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       }));
       setTasks(tasksData);
     });
 
     // Subscribe to progress updates
     const progressQuery = query(
-      collection(db, 'progress_updates'),
-      where('projectId', '==', project.id),
-      orderBy('updatedAt', 'desc')
+      collection(db, "progress_updates"),
+      where("projectId", "==", project.id),
+      orderBy("createdAt", "desc"),
     );
 
     const unsubscribeProgress = onSnapshot(progressQuery, (snapshot) => {
-      const progressData = snapshot.docs.map(doc => ({
+      const progressData = snapshot.docs.map((doc) => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
       }));
       setProgressUpdates(progressData);
+
+      // Fetch replies for new updates
+      progressData.forEach((update) => {
+        if (!updateReplies[update.id]) {
+          fetchUpdateReplies(update.id);
+        }
+      });
     });
 
     return () => {
@@ -136,10 +239,20 @@ const ClientProgressView = ({ project, onClose }) => {
 
   const calculateProjectStats = () => {
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => task.status === 'completed').length;
-    const inProgressTasks = tasks.filter(task => task.status === 'in-progress').length;
-    const totalHours = tasks.reduce((sum, task) => sum + (task.timeSpent || 0), 0);
-    const estimatedHours = tasks.reduce((sum, task) => sum + (task.estimatedHours || 0), 0);
+    const completedTasks = tasks.filter(
+      (task) => task.status === "completed",
+    ).length;
+    const inProgressTasks = tasks.filter(
+      (task) => task.status === "in-progress",
+    ).length;
+    const totalHours = tasks.reduce(
+      (sum, task) => sum + (task.timeSpent || 0),
+      0,
+    );
+    const estimatedHours = tasks.reduce(
+      (sum, task) => sum + (task.estimatedHours || 0),
+      0,
+    );
     const currentCost = totalHours * (projectDetails.hourlyRate || 0);
     const estimatedCost = estimatedHours * (projectDetails.hourlyRate || 0);
 
@@ -151,48 +264,9 @@ const ClientProgressView = ({ project, onClose }) => {
       estimatedHours,
       currentCost,
       estimatedCost,
-      completionPercentage: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
+      completionPercentage:
+        totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
     };
-  };
-
-  const handleSendComment = async () => {
-    if (!newComment.trim()) return;
-
-    try {
-      // Ensure we have valid client identification
-      const clientId = project.clientId || null;
-      const clientEmail = project.clientEmail || null;
-      
-      if (!clientId && !clientEmail) {
-        alert('Unable to identify client. Please refresh the page and try again.');
-        return;
-      }
-
-      // Create a client comment/feedback
-      const commentData = {
-        projectId: project.id,
-        clientId: clientId,
-        clientEmail: clientEmail,
-        comment: newComment.trim(),
-        type: 'client_feedback',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      // Remove undefined fields to prevent Firebase errors
-      const cleanCommentData = Object.fromEntries(
-        Object.entries(commentData).filter(([_, value]) => value !== undefined)
-      );
-
-      await addDoc(collection(db, 'project_comments'), cleanCommentData);
-      setNewComment('');
-      
-      // Show success message
-      alert('Comment sent successfully!');
-    } catch (error) {
-      console.error('Error sending comment:', error);
-      alert('Failed to send comment. Please try again.');
-    }
   };
 
   const stats = calculateProjectStats();
@@ -215,7 +289,9 @@ const ClientProgressView = ({ project, onClose }) => {
           {/* Header */}
           <div className="flex justify-between items-start mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">{projectDetails.title}</h2>
+              <h2 className="text-2xl font-bold text-gray-900">
+                {projectDetails.title}
+              </h2>
               <p className="text-gray-600">Project Progress & Updates</p>
             </div>
             <button
@@ -229,15 +305,19 @@ const ClientProgressView = ({ project, onClose }) => {
           {/* Progress Overview */}
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg mb-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Project Overview</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Project Overview
+              </h3>
               <div className="flex items-center space-x-2">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                <span className="text-2xl font-bold text-green-600">{stats.completionPercentage}%</span>
+                <span className="text-2xl font-bold text-green-600">
+                  {stats.completionPercentage}%
+                </span>
               </div>
             </div>
-            
+
             <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-              <div 
+              <div
                 className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-500"
                 style={{ width: `${stats.completionPercentage}%` }}
               />
@@ -245,20 +325,28 @@ const ClientProgressView = ({ project, onClose }) => {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{stats.totalTasks}</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {stats.totalTasks}
+                </div>
                 <div className="text-sm text-gray-600">Total Tasks</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{stats.completedTasks}</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {stats.completedTasks}
+                </div>
                 <div className="text-sm text-gray-600">Completed</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-yellow-600">{stats.totalHours.toFixed(1)}h</div>
-                <div className="text-sm text-gray-600">Hours Worked</div>
+                <div className="text-2xl font-bold text-yellow-600">
+                  {stats.inProgressTasks}
+                </div>
+                <div className="text-sm text-gray-600">In Progress</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">RM{stats.currentCost.toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Current Cost</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {stats.totalHours.toFixed(1)}h
+                </div>
+                <div className="text-sm text-gray-600">Hours Logged</div>
               </div>
             </div>
           </div>
@@ -266,274 +354,336 @@ const ClientProgressView = ({ project, onClose }) => {
           {/* Tabs */}
           <div className="border-b border-gray-200 mb-6">
             <nav className="-mb-px flex space-x-8">
-              {[
-                { id: 'overview', name: 'Overview', icon: Eye },
-                { id: 'tasks', name: 'Tasks', icon: CheckCircle },
-                { id: 'time', name: 'Time Tracking', icon: Clock },
-                { id: 'updates', name: 'Progress Updates', icon: MessageCircle },
-                { id: 'files', name: 'Files', icon: FileText },
-                { id: 'billing', name: 'Billing', icon: DollarSign }
-              ].map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 mr-2" />
-                    {tab.name}
-                  </button>
-                );
-              })}
+              <button
+                onClick={() => setActiveTab("updates")}
+                className={`${
+                  activeTab === "updates"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+              >
+                <MessageCircle className="w-4 h-4 mr-2" />
+                Progress Updates ({progressUpdates.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("tasks")}
+                className={`${
+                  activeTab === "tasks"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Tasks ({tasks.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("time")}
+                className={`${
+                  activeTab === "time"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                Time Tracking
+              </button>
             </nav>
           </div>
 
           {/* Tab Content */}
-          <div className="min-h-[400px]">
-            {activeTab === 'overview' && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Project Timeline */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-semibold mb-3 flex items-center">
-                      <Calendar className="w-5 h-5 mr-2" />
-                      Project Timeline
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Start Date:</span>
-                        <span className="text-sm font-medium">
-                          {projectDetails.startDate ? new Date(projectDetails.startDate).toLocaleDateString() : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Due Date:</span>
-                        <span className="text-sm font-medium">
-                          {projectDetails.dueDate ? new Date(projectDetails.dueDate).toLocaleDateString() : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Priority:</span>
-                        <span className={`text-sm font-medium px-2 py-1 rounded ${
-                          projectDetails.priority === 'high' ? 'bg-red-100 text-red-800' :
-                          projectDetails.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
-                          {projectDetails.priority || 'Medium'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Financial Summary */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-semibold mb-3 flex items-center">
-                      <DollarSign className="w-5 h-5 mr-2" />
-                      Financial Summary
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Hourly Rate:</span>
-                        <span className="text-sm font-medium">RM{projectDetails.hourlyRate || 0}/hr</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Hours Worked:</span>
-                        <span className="text-sm font-medium">{stats.totalHours.toFixed(1)}h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Estimated Hours:</span>
-                        <span className="text-sm font-medium">{stats.estimatedHours.toFixed(1)}h</span>
-                      </div>
-                      <div className="flex justify-between border-t pt-2">
-                        <span className="text-sm font-semibold">Current Cost:</span>
-                        <span className="text-sm font-bold text-green-600">RM{stats.currentCost.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'tasks' && (
+          <div className="space-y-4">
+            {/* Progress Updates Tab */}
+            {activeTab === "updates" && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Project Tasks</h3>
-                <div className="space-y-3">
-                  {tasks.map((task) => (
-                    <div key={task.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900">{task.title}</h4>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          task.status === 'in-progress' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {task.status || 'Pending'}
-                        </span>
+                {progressUpdates.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <MessageCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No progress updates yet</p>
+                  </div>
+                ) : (
+                  progressUpdates.map((update) => (
+                    <div
+                      key={update.id}
+                      className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+                    >
+                      {/* Update Header */}
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start space-x-3">
+                          <div className="bg-blue-100 p-2 rounded-full">
+                            <User className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">
+                              {update.freelancerName || "Freelancer"}
+                            </h4>
+                            <p className="text-sm text-gray-500">
+                              {update.createdAt
+                                ?.toDate?.()
+                                ?.toLocaleDateString() || "Recently"}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      {task.description && (
-                        <p className="text-sm text-gray-600 mb-2">{task.description}</p>
+
+                      {/* Update Content */}
+                      <div className="mb-4">
+                        <p className="text-gray-700 whitespace-pre-wrap">
+                          {update.comment || update.updateText}
+                        </p>
+                      </div>
+
+                      {/* Attachments */}
+                      {update.attachments && update.attachments.length > 0 && (
+                        <div className="mb-4">
+                          <h5 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+                            <Paperclip className="w-4 h-4 mr-1" />
+                            Attachments ({update.attachments.length})
+                          </h5>
+                          <div className="space-y-2">
+                            {update.attachments.map((file, idx) => (
+                              <a
+                                key={idx}
+                                href={file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors"
+                              >
+                                <FileText className="w-4 h-4 mr-2 text-blue-600" />
+                                <span className="text-sm text-blue-600 hover:underline flex-1">
+                                  {file.name}
+                                </span>
+                                <Download className="w-4 h-4 text-gray-400" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                      <div className="flex items-center justify-between text-sm text-gray-500">
-                        <span>Progress: {task.progress || 0}%</span>
-                        <span>Hours: {task.timeSpent || 0}h / {task.estimatedHours || 0}h</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                        <div 
-                          className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${task.progress || 0}%` }}
-                        />
+
+                      {/* Replies Section */}
+                      {updateReplies[update.id] &&
+                        updateReplies[update.id].length > 0 && (
+                          <div className="mt-4 pl-4 border-l-2 border-gray-200 space-y-3">
+                            {updateReplies[update.id].map((reply) => (
+                              <div
+                                key={reply.id}
+                                className="bg-gray-50 p-3 rounded-lg"
+                              >
+                                <div className="flex items-start space-x-2 mb-2">
+                                  <div
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
+                                      reply.userRole === "freelancer"
+                                        ? "bg-blue-100 text-blue-600"
+                                        : "bg-green-100 text-green-600"
+                                    }`}
+                                  >
+                                    {reply.userName?.charAt(0)?.toUpperCase() ||
+                                      "U"}
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-semibold text-sm text-gray-900">
+                                        {reply.userName || "User"}
+                                      </span>
+                                      <span
+                                        className={`text-xs px-2 py-0.5 rounded-full ${
+                                          reply.userRole === "freelancer"
+                                            ? "bg-blue-100 text-blue-600"
+                                            : "bg-green-100 text-green-600"
+                                        }`}
+                                      >
+                                        {reply.userRole === "freelancer"
+                                          ? "Freelancer"
+                                          : "Client"}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        {reply.createdAt
+                                          ?.toDate?.()
+                                          ?.toLocaleDateString() || "Recently"}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+                                      {reply.comment}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                      {/* Reply Form */}
+                      <div className="mt-4">
+                        {!showReplyForm[update.id] ? (
+                          <button
+                            onClick={() => toggleReplyForm(update.id)}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center"
+                          >
+                            <MessageCircle className="w-4 h-4 mr-1" />
+                            Reply{" "}
+                            {updateReplies[update.id] &&
+                              updateReplies[update.id].length > 0 &&
+                              `(${updateReplies[update.id].length})`}
+                          </button>
+                        ) : (
+                          <div className="space-y-2">
+                            <textarea
+                              value={replyText[update.id] || ""}
+                              onChange={(e) =>
+                                setReplyText((prev) => ({
+                                  ...prev,
+                                  [update.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Write your reply..."
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                              rows={3}
+                            />
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleSendReply(update.id)}
+                                disabled={!replyText[update.id]?.trim()}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center"
+                              >
+                                <Send className="w-4 h-4 mr-2" />
+                                Send Reply
+                              </button>
+                              <button
+                                onClick={() => toggleReplyForm(update.id)}
+                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
             )}
 
-            {activeTab === 'time' && (
+            {/* Tasks Tab */}
+            {activeTab === "tasks" && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Time Tracking</h3>
-                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {timeEntries.map((entry) => (
-                        <tr key={entry.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {entry.taskTitle}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {entry.hours.toFixed(1)}h
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {entry.date.toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              entry.status === 'completed' ? 'bg-green-100 text-green-800' :
-                              entry.status === 'in-progress' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {entry.status || 'Pending'}
+                {tasks.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No tasks yet</p>
+                  </div>
+                ) : (
+                  tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="bg-white border border-gray-200 rounded-lg p-4"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            {task.status === "completed" && (
+                              <CheckCircle className="w-5 h-5 text-green-500" />
+                            )}
+                            {task.status === "in-progress" && (
+                              <Clock className="w-5 h-5 text-blue-500" />
+                            )}
+                            {task.status === "pending" && (
+                              <AlertCircle className="w-5 h-5 text-yellow-500" />
+                            )}
+                            <h4 className="font-semibold text-gray-900">
+                              {task.title}
+                            </h4>
+                          </div>
+                          {task.description && (
+                            <p className="text-sm text-gray-600 mb-2">
+                              {task.description}
+                            </p>
+                          )}
+                          <div className="flex items-center space-x-4 text-sm text-gray-500">
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs ${
+                                task.status === "completed"
+                                  ? "bg-green-100 text-green-800"
+                                  : task.status === "in-progress"
+                                    ? "bg-blue-100 text-blue-800"
+                                    : "bg-yellow-100 text-yellow-800"
+                              }`}
+                            >
+                              {task.status?.replace("-", " ").toUpperCase()}
                             </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'updates' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Progress Updates</h3>
-                <div className="space-y-4">
-                  {progressUpdates.map((update) => (
-                    <div key={update.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900">{update.taskTitle}</h4>
-                        <span className="text-sm text-gray-500">
-                          {update.updatedAt?.toDate().toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <span>Progress: {update.oldProgress}% → {update.newProgress}%</span>
-                        <span className="text-green-600">+{update.progressChange}%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'files' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Project Files</h3>
-                <div className="text-center py-8 text-gray-500">
-                  <FileText className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                  <p>No files uploaded yet</p>
-                  <p className="text-sm">Files will appear here when the freelancer uploads them</p>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'billing' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Billing Information</h3>
-                <div className="bg-white border border-gray-200 rounded-lg p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-medium mb-3">Current Billing</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Hours Worked:</span>
-                          <span className="font-medium">{stats.totalHours.toFixed(1)}h</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Hourly Rate:</span>
-                          <span className="font-medium">RM{projectDetails.hourlyRate || 0}</span>
-                        </div>
-                        <div className="flex justify-between border-t pt-2">
-                          <span className="font-semibold">Current Total:</span>
-                          <span className="font-bold text-lg">RM{stats.currentCost.toFixed(2)}</span>
+                            {task.timeSpent > 0 && (
+                              <span className="flex items-center">
+                                <Clock className="w-4 h-4 mr-1" />
+                                {task.timeSpent}h logged
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Time Tracking Tab */}
+            {activeTab === "time" && (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-medium mb-3">Project Estimates</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Estimated Hours:</span>
-                          <span className="font-medium">{stats.estimatedHours.toFixed(1)}h</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Estimated Total:</span>
-                          <span className="font-medium">RM{stats.estimatedCost.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Remaining Hours:</span>
-                          <span className="font-medium">{(stats.estimatedHours - stats.totalHours).toFixed(1)}h</span>
-                        </div>
+                      <h4 className="font-semibold text-gray-900">
+                        Total Time Logged
+                      </h4>
+                      <p className="text-sm text-gray-600">Across all tasks</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-bold text-blue-600">
+                        {stats.totalHours.toFixed(1)}h
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        RM{stats.currentCost.toFixed(2)} total
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {timeEntries.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No time entries yet</p>
+                  </div>
+                ) : (
+                  timeEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="bg-white border border-gray-200 rounded-lg p-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">
+                            {entry.taskTitle}
+                          </h4>
+                          <p className="text-sm text-gray-500">
+                            {entry.date.toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold text-blue-600">
+                            {entry.hours}h
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            RM
+                            {(
+                              entry.hours * (projectDetails.hourlyRate || 0)
+                            ).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
-          </div>
-
-          {/* Client Feedback Section */}
-          <div className="mt-8 border-t pt-6">
-            <h3 className="text-lg font-semibold mb-4">Send Feedback</h3>
-            <div className="flex space-x-4">
-              <input
-                type="text"
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Ask a question or provide feedback..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button
-                onClick={handleSendComment}
-                disabled={!newComment.trim()}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                <Send className="w-4 h-4 mr-2" />
-                Send
-              </button>
-            </div>
           </div>
         </div>
       </div>

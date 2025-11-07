@@ -1,10 +1,10 @@
-const { admin } = require('../firebase-admin');
+const { admin, db } = require('../firebase-admin');
 
 // Authentication middleware
 const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
       return res.status(401).json({ error: 'Access token required' });
@@ -32,7 +32,7 @@ const authorizeRole = (allowedRoles) => {
       console.log('Allowed roles:', allowedRoles);
 
       // Get user role from Firestore
-      const userDoc = await admin.firestore().collection('users').doc(req.user.uid).get();
+      const userDoc = await db.collection('users').doc(req.user.uid).get();
       if (!userDoc.exists) {
         console.error('User document not found in Firestore:', req.user.uid);
         return res.status(404).json({ error: 'User not found in database' });
@@ -56,7 +56,7 @@ const authorizeRole = (allowedRoles) => {
         });
       }
 
-      req.user.role = userRole; // Add role to req.user
+      req.user.role = userRole;
       req.userRole = userRole;
       req.userData = userData;
       

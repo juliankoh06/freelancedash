@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
-import { auth } from '../firebase-config';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -20,6 +18,9 @@ export default function Register() {
 
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState('form'); // 'form' or 'otp'
+  const [otp, setOtp] = useState('');
+  const [attemptsLeft, setAttemptsLeft] = useState(3);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -67,40 +68,195 @@ export default function Register() {
     setError('');
 
     try {
-      // Step 1: Create Firebase Authentication account
-      const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
-      const firebaseUser = userCredential.user;
-
-      // Step 2: Create Firestore user document via backend
-      const registrationData = {
+      // Send OTP to email
+      const response = await axios.post('http://localhost:5000/api/auth/register-with-otp', {
         username: form.username,
         fullName: form.fullName,
         email: form.email,
         role: form.role,
         address: form.address,
         company: form.role === 'client' ? form.company : undefined,
-        firebaseUid: firebaseUser.uid
-      };
+        country: form.country
+      });
 
-      await axios.post('http://localhost:5000/api/auth/register', registrationData);
-      alert('✅ Registered successfully! You can now log in.');
-      navigate('/login');
+      if (response.data.success) {
+        setStep('otp');
+        setError('');
+      }
     } catch (err) {
-      // Handle Firebase Auth errors
-      if (err.code === 'auth/email-already-in-use') {
-        setError('This email is already registered. Please log in.');
-      } else if (err.code === 'auth/weak-password') {
-        setError('Password should be at least 6 characters.');
-      } else if (err.code === 'auth/invalid-email') {
-        setError('Invalid email address.');
-      } else {
-        setError(err.response?.data?.error || err.message || 'Registration failed. Please try again.');
+      setError(err.response?.data?.error || 'Failed to send verification code. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOTPSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!otp || otp.length !== 6) {
+      setError('Please enter a valid 6-digit code');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post('http://localhost:5000/api/auth/verify-registration-otp', {
+        email: form.email,
+        otp: otp,
+        password: form.password
+      });
+
+      if (response.data.success) {
+        alert('✅ Account created successfully! You can now log in.');
+        navigate('/login');
+      }
+    } catch (err) {
+      const errorData = err.response?.data;
+      setError(errorData?.error || 'Verification failed. Please try again.');
+      
+      if (errorData?.attemptsLeft !== undefined) {
+        setAttemptsLeft(errorData.attemptsLeft);
       }
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleResendOTP = async () => {
+    setIsLoading(true);
+    setError('');
+    setOtp('');
+
+    try {
+      await axios.post('http://localhost:5000/api/auth/register-with-otp', {
+        username: form.username,
+        fullName: form.fullName,
+        email: form.email,
+        role: form.role,
+        address: form.address,
+        company: form.role === 'client' ? form.company : undefined,
+        country: form.country
+      });
+
+      alert('✅ New verification code sent!');
+      setAttemptsLeft(3);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to resend code. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBackToForm = () => {
+    setStep('form');
+    setOtp('');
+    setError('');
+    setAttemptsLeft(3);
+  };
+
+  // OTP Screen
+  if (step === 'otp') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundImage: 'url(/freelance.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            padding: '30px',
+            borderRadius: '8px',
+            maxWidth: '350px',
+            width: '100%',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
+          }}
+        >
+          <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>FREELANCEDASH</h2>
+
+          <p style={{ textAlign: 'center', color: '#28a745', fontSize: '14px', marginBottom: '10px', fontWeight: '500' }}>
+            ✓ Verification code sent!
+          </p>
+          <p style={{ textAlign: 'center', color: '#666', fontSize: '13px', marginBottom: '20px' }}>
+            We've sent a 6-digit code to <strong>{form.email}</strong>
+          </p>
+
+          <form onSubmit={handleOTPSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
+            <label htmlFor="otp" style={{ textAlign: 'center' }}>Enter Verification Code</label>
+            <input
+              id="otp"
+              name="otp"
+              type="text"
+              value={otp}
+              onChange={(e) => {
+                setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                setError('');
+              }}
+              placeholder="000000"
+              style={{ 
+                padding: '12px', 
+                fontSize: '20px', 
+                textAlign: 'center', 
+                letterSpacing: '10px',
+                fontWeight: 'bold',
+                marginTop: '10px'
+              }}
+              maxLength="6"
+              required
+              autoFocus
+            />
+
+            {error && <p style={{ color: 'red', marginTop: 10, fontSize: '14px', textAlign: 'center' }}>{error}</p>}
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                marginTop: 20,
+                padding: '10px 12px',
+                fontSize: '14px',
+                backgroundColor: isLoading ? '#ccc' : '#28a745',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: isLoading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {isLoading ? 'Verifying...' : 'Verify & Register'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBackToForm}
+              style={{
+                marginTop: 10,
+                padding: '8px',
+                fontSize: '12px',
+                backgroundColor: 'transparent',
+                color: '#666',
+                border: 'none',
+                cursor: 'pointer',
+                textDecoration: 'underline'
+              }}
+            >
+              ← Back to registration
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Registration Form Screen
   return (
     <div
       style={{

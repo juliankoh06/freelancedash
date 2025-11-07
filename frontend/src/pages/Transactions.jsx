@@ -7,7 +7,6 @@ import {
   CreditCard,
   FileText,
   Search,
-  Download,
   RefreshCw
 } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
@@ -199,10 +198,6 @@ const Transactions = ({ user }) => {
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </button>
-            <button className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </button>
           </div>
         </div>
       </div>
@@ -367,6 +362,11 @@ const Transactions = ({ user }) => {
                       <div className="text-sm font-semibold text-gray-900">
                         RM{(transaction.amount || 0).toFixed(2)}
                       </div>
+                      {transaction.lateFee && transaction.lateFee > 0 && (
+                        <div className="text-xs text-orange-600 mt-0.5">
+                          (incl. RM{transaction.lateFee.toFixed(2)} late fee)
+                        </div>
+                      )}
                       <div className="text-sm text-gray-500">{transaction.currency || 'RM'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

@@ -38,18 +38,13 @@ const Settings = ({ user }) => {
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
-    emailVerificationPassword: '' // Separate password for email verification
+    emailVerificationPassword: ''
   });
   const [showPasswords, setShowPasswords] = useState({
     current: false,
     new: false,
     confirm: false,
     emailVerification: false
-  });
-  
-  // Appearance settings
-  const [appearance, setAppearance] = useState({
-    theme: 'light'
   });
 
   useEffect(() => {
@@ -63,12 +58,6 @@ const Settings = ({ user }) => {
       });
     }
   }, [user]);
-
-  // Load saved theme from localStorage on component mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    setAppearance({ theme: savedTheme });
-  }, []);
 
   const showMessage = (type, text) => {
     setMessage({ type, text });
@@ -181,50 +170,9 @@ const Settings = ({ user }) => {
     }
   };
 
-  const handleAppearanceUpdate = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    try {
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        appearanceSettings: appearance,
-        updatedAt: new Date()
-      });
-      
-      // Apply theme immediately
-      applyTheme(appearance.theme);
-      
-      showMessage('success', 'Appearance settings updated!');
-    } catch (error) {
-      console.error('Error updating appearance:', error);
-      showMessage('error', 'Failed to update appearance settings.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const applyTheme = (theme) => {
-    const root = document.documentElement;
-    
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      root.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  };
-
-  const handleThemeChange = (newTheme) => {
-    setAppearance({...appearance, theme: newTheme});
-    applyTheme(newTheme);
-  };
-
   const tabs = [
     { id: 'profile', name: 'Profile', icon: User },
-    { id: 'security', name: 'Security', icon: Shield },
-    { id: 'appearance', name: 'Appearance', icon: Palette }
+    { id: 'security', name: 'Security', icon: Shield }
   ];
 
   return (
@@ -507,62 +455,7 @@ const Settings = ({ user }) => {
             </div>
           )}
 
-          {/* Appearance Tab */}
-          {activeTab === 'appearance' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Theme Settings</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between py-3 border-b border-gray-200">
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-900">Light Theme</h4>
-                      <p className="text-sm text-gray-500">Clean and bright interface</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="radio"
-                        name="theme"
-                        value="light"
-                        checked={appearance.theme === 'light'}
-                        onChange={(e) => handleThemeChange(e.target.value)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-4 h-4 border-2 border-gray-300 rounded-full peer-checked:border-blue-600 peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                  
-                  <div className="flex items-center justify-between py-3 border-b border-gray-200">
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-900">Dark Theme</h4>
-                      <p className="text-sm text-gray-500">Easy on the eyes in low light</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="radio"
-                        name="theme"
-                        value="dark"
-                        checked={appearance.theme === 'dark'}
-                        onChange={(e) => handleThemeChange(e.target.value)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-4 h-4 border-2 border-gray-300 rounded-full peer-checked:border-blue-600 peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex justify-end">
-                <button
-                  onClick={handleAppearanceUpdate}
-                  disabled={loading}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center"
-                >
-                  <Palette className="w-4 h-4 mr-2" />
-                  {loading ? 'Saving...' : 'Save Theme'}
-                </button>
-              </div>
-            </div>
-          )}
+          {}
         </div>
       </div>
     </div>

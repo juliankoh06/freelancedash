@@ -143,5 +143,53 @@ service cloud.firestore {
       allow update: if request.auth != null;
       allow delete: if request.auth != null;
     }
+    
+    // Revision History - for tracking all revision attempts
+    match /revision_history/{historyId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Update Comments - progress update comments
+    match /update_comments/{commentId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Project Comments - project-level comments
+    match /project_comments/{commentId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Reminder Settings - payment reminder configuration
+    match /reminder_settings/{settingsId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Payment Reminders - reminder history logs
+    match /payment_reminders/{reminderId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Invoice Follow-ups - follow-up email logs
+    match /invoice_followups/{followupId} {
+      allow read, list: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
   }
 }

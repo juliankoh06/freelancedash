@@ -21,7 +21,7 @@ const projectUpdateSchema = Joi.object({
   estimatedHours: Joi.number().min(1).max(8760).optional(),
   dueDate: Joi.date().optional(),
   priority: Joi.string().valid('low', 'medium', 'high').optional(),
-  status: Joi.string().valid('active', 'completed', 'cancelled', 'on_hold').optional()
+  status: Joi.string().valid('active', 'completed', 'on_hold').optional()
 });
 
 // Task validation schemas
@@ -30,7 +30,7 @@ const taskSchema = Joi.object({
   description: Joi.string().max(500).optional(),
   estimatedHours: Joi.number().min(0).max(1000).required(),
   priority: Joi.string().valid('low', 'medium', 'high').default('medium'),
-  status: Joi.string().valid('pending', 'in_progress', 'completed', 'cancelled').default('pending')
+  status: Joi.string().valid('pending', 'completed').default('pending')
 });
 
 const taskUpdateSchema = Joi.object({
@@ -39,12 +39,13 @@ const taskUpdateSchema = Joi.object({
   estimatedHours: Joi.number().min(0).max(1000).optional(),
   actualHours: Joi.number().min(0).max(1000).optional(),
   priority: Joi.string().valid('low', 'medium', 'high').optional(),
-  status: Joi.string().valid('pending', 'in_progress', 'completed', 'cancelled').optional()
+  status: Joi.string().valid('pending', 'completed').optional()
 });
 
 // Invoice validation schemas
 const invoiceSchema = Joi.object({
-  projectId: Joi.string().required(),
+  projectId: Joi.string().optional().allow(null, ''), // Made optional to allow custom invoices
+  projectTitle: Joi.string().optional().allow(null, ''), // For custom invoices without project link
   clientEmail: Joi.string().email().required(),
   lineItems: Joi.array().items(
     Joi.object({
@@ -57,7 +58,6 @@ const invoiceSchema = Joi.object({
   subtotal: Joi.number().min(0).required(),
   taxAmount: Joi.number().min(0).default(0),
   totalAmount: Joi.number().min(0).required(),
-  currency: Joi.string().length(3).default('RM'),
   issueDate: Joi.date().default(Date.now),
   dueDate: Joi.date().min(Joi.ref('issueDate')).required(),
   notes: Joi.string().max(500).optional()
@@ -69,8 +69,7 @@ const transactionSchema = Joi.object({
   amount: Joi.number().min(0).required(),
   type: Joi.string().valid('payment', 'expense', 'refund', 'milestone').required(),
   description: Joi.string().max(200).required(),
-  paymentMethod: Joi.string().max(50).optional(),
-  paymentReference: Joi.string().max(100).optional()
+  paymentMethod: Joi.string().max(50).optional()
 });
 
 // User validation schemas
@@ -81,8 +80,7 @@ const userSchema = Joi.object({
   password: Joi.string().min(8).required(),
   role: Joi.string().valid('freelancer', 'client').required(),
   company: Joi.string().max(100).optional(),
-  address: Joi.string().max(500).optional(),
-  country: Joi.string().max(100).optional()
+  address: Joi.string().max(500).optional()
 });
 
 const userRegistrationSchema = Joi.object({
@@ -94,8 +92,16 @@ const userRegistrationSchema = Joi.object({
   role: Joi.string().valid('freelancer', 'client').required(),
   company: Joi.string().max(100).optional(),
   address: Joi.string().max(500).optional(),
-  country: Joi.string().max(100).optional(),
   termsAccepted: Joi.boolean().valid(true).required()
+});
+
+const userOTPRegistrationSchema = Joi.object({
+  username: Joi.string().min(3).max(50).required(),
+  fullName: Joi.string().min(2).max(100).required(),
+  email: Joi.string().email().required(),
+  role: Joi.string().valid('freelancer', 'client').required(),
+  company: Joi.string().max(100).optional(),
+  address: Joi.string().max(500).optional()
 });
 
 module.exports = {
@@ -106,5 +112,6 @@ module.exports = {
   invoiceSchema,
   transactionSchema,
   userSchema,
-  userRegistrationSchema
+  userRegistrationSchema,
+  userOTPRegistrationSchema
 };

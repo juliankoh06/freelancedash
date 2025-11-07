@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const Invoice = require('../models/Invoice');
 const { db } = require('../firebase-admin');
-const invoiceCalculationService = require('../services/invoiceCalculationService');
+const InvoiceCalculationService = require('../services/invoiceCalculationService');
+const invoiceCalculationService = new InvoiceCalculationService();
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 
 // Get all invoices
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const invoices = await Invoice.getAll();
     res.json({ success: true, data: invoices });
@@ -44,7 +45,7 @@ router.post('/:id/approve', authenticateToken, async (req, res) => {
 });
 
 // Get invoice by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const invoice = await Invoice.findById(id);
@@ -130,7 +131,6 @@ router.post('/check-recurring', async (req, res) => {
           taxRate: 0.06,
           taxAmount: recurring.amount * 0.06,
           totalAmount: recurring.amount * 1.06,
-          currency: recurring.currency,
           lineItems: recurring.invoiceTemplate.lineItems,
           paymentTerms: recurring.invoiceTemplate.paymentTerms,
           notes: recurring.invoiceTemplate.notes,

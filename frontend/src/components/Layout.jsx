@@ -9,7 +9,6 @@ import {
   Settings,
   LogOut,
   Search,
-  Bell,
   User
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
@@ -34,8 +33,9 @@ const Layout = ({ children, user }) => {
 
   const clientNavigation = [
     { name: 'Project Progress', href: '/client-dashboard', icon: FolderOpen },
-    { name: 'Transactions', href: '/client-transactions', icon: FileText },
+    { name: 'Transactions', href: '/transactions', icon: FileText },
     { name: 'Payment', href: '/client-payments', icon: FileText },
+    { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
   const navigation = currentUser?.role === 'client' ? clientNavigation : freelancerNavigation;
@@ -120,21 +120,13 @@ const Layout = ({ children, user }) => {
               </div>
               
               <div className="header-right space-x-4">
-                {/* Notifications - Hide on Dashboard */}
-                {location.pathname !== '/dashboard' && location.pathname !== '/' && (
-                  <button className="p-2 text-gray-400 hover:text-gray-600 relative">
-                    <Bell className="w-5 h-5" />
-                    <span className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></span>
-                  </button>
-                )}
-
                 {/* User Menu - Always show */}
                 <div className="flex items-center space-x-2">
                   <div className="w-8 h-8 bg-teal-600 rounded-full flex items-center justify-center">
                     <User className="w-4 h-4 text-white" />
                   </div>
                   <span className="text-sm font-medium text-gray-700">
-                    {currentUser?.displayName || currentUser?.email || currentUser?.username || 'User Name'}
+                    {currentUser?.username || currentUser?.displayName || currentUser?.email || 'User Name'}
                   </span>
                 </div>
               </div>

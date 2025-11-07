@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 const progressTrackingService = require('../services/progressTrackingService');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -38,6 +38,31 @@ router.post('/verify/:progressUpdateId', authenticateToken, async (req, res) => 
   }
 });
 
+// Update project progress (recalculate based on tasks)
+router.post('/project/:projectId/update', authenticateToken, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user.uid;
+
+    // Verify user has access to this project
+    const projectDoc = await db.collection('projects').doc(projectId).get();
+    if (!projectDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
+    }
+
+    const projectData = projectDoc.data();
+    if (projectData.freelancerId !== userId && projectData.clientId !== userId) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const result = await progressTrackingService.updateProjectProgress(projectId);
+    res.json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error updating project progress:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Get progress updates for a project
 router.get('/project/:projectId', authenticateToken, async (req, res) => {
   try {
@@ -45,7 +70,7 @@ router.get('/project/:projectId', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Verify user has access to this project
-    const projectDoc = await admin.firestore().collection('projects').doc(projectId).get();
+    const projectDoc = await db.collection('projects').doc(projectId).get();
     if (!projectDoc.exists) {
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
@@ -56,7 +81,7 @@ router.get('/project/:projectId', authenticateToken, async (req, res) => {
     }
 
     // Get progress updates
-    const progressUpdatesSnapshot = await admin.firestore()
+    const progressUpdatesSnapshot = await db
       .collection('progress_updates')
       .where('projectId', '==', projectId)
       .orderBy('updatedAt', 'desc')

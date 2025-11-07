@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase-config';
-import { CreditCard, FileText, Calendar, DollarSign, AlertCircle, CheckCircle } from 'lucide-react';
+import { CreditCard, FileText, Calendar, DollarSign, AlertCircle, CheckCircle, Download } from 'lucide-react';
 import MockPaymentModal from '../components/MockPaymentModal';
 import mockPaymentService from '../services/mockPaymentService';
+import { downloadInvoicePDF } from '../utils/pdfGenerator';
 
 const ClientPayments = ({ user }) => {
   const navigate = useNavigate();
@@ -133,15 +134,16 @@ const ClientPayments = ({ user }) => {
         return;
       }
 
+      // Get the correct amount field (support multiple field names)
+      const invoiceAmount = selectedInvoice.totalAmount || selectedInvoice.total || selectedInvoice.amount || 0;
+
       // Process payment through mock payment service
       const result = await mockPaymentService.processPayment({
-        amount: selectedInvoice.totalAmount,
-        currency: selectedInvoice.currency,
+        amount: invoiceAmount,
+        currency: selectedInvoice.currency || 'RM',
         paymentMethod: paymentData.paymentMethod,
-        paymentDetails: paymentData.paymentDetails,
         paymentId: `mock_${Date.now()}`,
-        reference: `REF_${Date.now()}`,
-        paidAt: new Date()
+        reference: `REF_${Date.now()}`
       }, selectedInvoice);
 
       if (result.success) {
@@ -156,6 +158,15 @@ const ClientPayments = ({ user }) => {
     } catch (error) {
       console.error('Payment processing error:', error);
       alert('Payment processing failed: ' + error.message);
+    }
+  };
+
+  const handleDownloadInvoice = async (invoice) => {
+    try {
+      await downloadInvoicePDF(invoice);
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      alert('Failed to download invoice: ' + error.message);
     }
   };
 
@@ -235,19 +246,52 @@ const ClientPayments = ({ user }) => {
                       <div className="flex items-center space-x-2">
                         <DollarSign className="w-4 h-4" />
                         <span className="font-semibold text-lg text-gray-900">
-                          {formatCurrency(invoice.totalAmount, invoice.currency)}
+                          {formatCurrency(invoice.totalAmount || invoice.total || invoice.amount || 0, invoice.currency)}
                         </span>
                       </div>
                     </div>
+                    
+                    {/* Late Payment Warning */}
+                    {invoice.status === 'overdue' && (
+                      <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-md">
+                        <div className="flex items-start">
+                          <AlertCircle className="w-4 h-4 text-orange-600 mt-0.5 mr-2 flex-shrink-0" />
+                          <div className="text-xs text-orange-700">
+                            <p className="font-semibold">Late payment fees may apply</p>
+                            <p className="mt-0.5">Check contract terms for late payment policy</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Security Warning for Invoices Not Linked to Projects */}
+                    {(!invoice.projectId || !invoice.projectTitle) && (
+                      <div className="mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded-md">
+                        <div className="flex items-start">
+                          <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 mr-2 flex-shrink-0" />
+                          <div className="text-xs text-yellow-800">
+                            <p className="font-semibold">⚠️ Unlinked Invoice - Verify Before Payment</p>
+                            <p className="mt-0.5">This invoice is not linked to any project in your account. Please verify with the freelancer before making payment to prevent fraud.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
-                  <div className="ml-6 flex-shrink-0">
+                  <div className="ml-6 flex-shrink-0 flex items-center space-x-2">
+                    <button
+                      onClick={() => handleDownloadInvoice(invoice)}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                      title="Download Invoice PDF"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
                     {invoice.status === 'paid' ? (
                       <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-md">
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Paid
                       </div>
-                    ) : (invoice.status === 'sent' || invoice.status === 'overdue') ? (
+                    ) : (invoice.status === 'pending' || invoice.status === 'sent' || invoice.status === 'overdue') ? (
                       <button
                         onClick={() => handlePayment(invoice)}
                         className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${

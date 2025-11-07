@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Save, DollarSign, Calendar, FileText, AlertCircle } from 'lucide-react';
 
-const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, readOnly = false }) => {
+const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, readOnly = false }) => {
   const [editableData, setEditableData] = useState(invoiceData);
   const [errors, setErrors] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -98,16 +98,16 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
       if (!item.description || item.description.trim() === '') {
         validationErrors.push(`Line item ${index + 1}: Description is required`);
       }
-      if (!item.quantity || parseFloat(item.quantity) <= 0) {
-        validationErrors.push(`Line item ${index + 1}: Quantity must be greater than 0`);
+      if (item.quantity === '' || item.quantity === null || item.quantity === undefined || parseFloat(item.quantity) < 0) {
+        validationErrors.push(`Line item ${index + 1}: Quantity cannot be negative`);
       }
-      if (!item.rate || parseFloat(item.rate) < 0) {
+      if (item.rate === '' || item.rate === null || item.rate === undefined || parseFloat(item.rate) < 0) {
         validationErrors.push(`Line item ${index + 1}: Rate cannot be negative`);
       }
     });
 
-    if (editableData.totalAmount <= 0) {
-      validationErrors.push('Total amount must be greater than 0');
+    if (editableData.totalAmount < 0) {
+      validationErrors.push('Total amount cannot be negative');
     }
 
     setErrors(validationErrors);
@@ -117,12 +117,6 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
   const handleConfirm = () => {
     if (validateInvoice()) {
       onConfirm(editableData);
-    }
-  };
-
-  const handleSaveDraft = () => {
-    if (validateInvoice()) {
-      onSaveDraft(editableData);
     }
   };
 
@@ -177,7 +171,10 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
               <label className="block text-sm font-medium text-gray-700 mb-1">Issue Date</label>
               <input
                 type="date"
-                value={editableData.issueDate ? new Date(editableData.issueDate).toISOString().split('T')[0] : ''}
+                value={editableData.issueDate ? (() => {
+                  const date = editableData.issueDate.seconds ? editableData.issueDate.toDate() : new Date(editableData.issueDate);
+                  return date.toISOString().split('T')[0];
+                })() : ''}
                 onChange={(e) => setEditableData(prev => ({ ...prev, issueDate: new Date(e.target.value) }))}
                 disabled={readOnly}
                 className={`w-full px-3 py-2 border border-gray-300 rounded-md ${readOnly ? 'bg-gray-50 text-gray-600' : 'focus:ring-2 focus:ring-blue-500 focus:border-transparent'}`}
@@ -187,7 +184,10 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
               <label className="block text-sm font-medium text-gray-700 mb-1">Due Date *</label>
               <input
                 type="date"
-                value={editableData.dueDate ? new Date(editableData.dueDate).toISOString().split('T')[0] : ''}
+                value={editableData.dueDate ? (() => {
+                  const date = editableData.dueDate.seconds ? editableData.dueDate.toDate() : new Date(editableData.dueDate);
+                  return date.toISOString().split('T')[0];
+                })() : ''}
                 onChange={(e) => setEditableData(prev => ({ ...prev, dueDate: new Date(e.target.value) }))}
                 disabled={readOnly}
                 className={`w-full px-3 py-2 border border-gray-300 rounded-md ${readOnly ? 'bg-gray-50 text-gray-600' : 'focus:ring-2 focus:ring-blue-500 focus:border-transparent'}`}
@@ -203,16 +203,48 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
               <p className="text-sm text-gray-600">{editableData.freelancerEmail || 'N/A'}</p>
             </div>
             <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">To (Client)</h3>
-              <p className="text-sm text-gray-700">{editableData.clientName || 'Client'}</p>
-              <p className="text-sm text-gray-600">{editableData.clientEmail || 'N/A'}</p>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">To (Client) *</h3>
+              {readOnly ? (
+                <>
+                  <p className="text-sm text-gray-700">{editableData.clientName || 'Client'}</p>
+                  <p className="text-sm text-gray-600">{editableData.clientEmail || 'N/A'}</p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Client Name"
+                    value={editableData.clientName || ''}
+                    onChange={(e) => setEditableData(prev => ({ ...prev, clientName: e.target.value }))}
+                    className="w-full px-3 py-2 mb-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Client Email *"
+                    value={editableData.clientEmail || ''}
+                    onChange={(e) => setEditableData(prev => ({ ...prev, clientEmail: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    required
+                  />
+                </>
+              )}
             </div>
           </div>
 
-          {/* Project Info */}
+          {/* Project Info - Optional */}
           <div className="bg-blue-50 p-4 rounded-lg">
-            <h3 className="text-sm font-semibold text-blue-900 mb-2">Project</h3>
-            <p className="text-sm text-blue-700">{editableData.projectTitle || 'Untitled Project'}</p>
+            <h3 className="text-sm font-semibold text-blue-900 mb-2">Project (Optional)</h3>
+            {readOnly ? (
+              <p className="text-sm text-blue-700">{editableData.projectTitle || 'No project linked'}</p>
+            ) : (
+              <input
+                type="text"
+                placeholder="Project Title (Optional)"
+                value={editableData.projectTitle || ''}
+                onChange={(e) => setEditableData(prev => ({ ...prev, projectTitle: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+              />
+            )}
           </div>
 
           {/* Line Items */}
@@ -287,7 +319,7 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-sm font-medium text-gray-900">
-                          {editableData.currency || 'RM'}{item.amount.toFixed(2)}
+                          {editableData.currency || 'RM'}{(item.amount || 0).toFixed(2)}
                         </span>
                       </td>
                       {!readOnly && (
@@ -314,7 +346,7 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-700">Subtotal:</span>
                 <span className="text-sm font-medium text-gray-900">
-                  {editableData.currency || 'RM'}{editableData.subtotal.toFixed(2)}
+                  {editableData.currency || 'RM'}{(editableData.subtotal || 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -322,13 +354,13 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
                   Tax ({((editableData.taxRate || 0.06) * 100).toFixed(1)}%):
                 </span>
                 <span className="text-sm font-medium text-gray-900">
-                  {editableData.currency || 'RM'}{editableData.taxAmount.toFixed(2)}
+                  {editableData.currency || 'RM'}{(editableData.taxAmount || 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center pt-3 border-t border-gray-300">
                 <span className="text-lg font-semibold text-gray-900">Total:</span>
                 <span className="text-lg font-bold text-gray-900">
-                  {editableData.currency || 'RM'}{editableData.totalAmount.toFixed(2)}
+                  {editableData.currency || 'RM'}{(editableData.totalAmount || 0).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -389,26 +421,19 @@ const InvoicePreviewModal = ({ invoiceData, onConfirm, onCancel, onSaveDraft, re
             onClick={onCancel}
             className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
           >
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </button>
-          <div className="flex items-center space-x-3">
-            {onSaveDraft && (
+          {!readOnly && (
+            <div className="flex items-center space-x-3">
               <button
-                onClick={handleSaveDraft}
-                className="flex items-center px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                onClick={handleConfirm}
+                className="flex items-center px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
               >
-                <Save className="w-4 h-4 mr-2" />
-                Save as Draft
+                <FileText className="w-4 h-4 mr-2" />
+                Confirm & Send Invoice
               </button>
-            )}
-            <button
-              onClick={handleConfirm}
-              className="flex items-center px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Confirm & Send Invoice
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

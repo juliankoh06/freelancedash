@@ -1,8 +1,8 @@
-// Enhanced Progress Tracking Service with automatic client notifications
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore';
+// Progress Tracking Service - uses backend API for all operations
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { db } from '../firebase-config';
-import { projectValidation, errorHandling } from '../utils/validation';
+import { errorHandling } from '../utils/validation';
 
 class ProgressTrackingService {
   constructor() {
@@ -57,200 +57,38 @@ class ProgressTrackingService {
   // Update overall project progress
   async updateProjectProgress(projectId) {
     try {
-      // Get all tasks for the project
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('projectId', '==', projectId)
-      );
-      const tasksSnapshot = await getDocs(tasksQuery);
-      const tasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-      if (tasks.length === 0) {
-        return { success: true, data: { progress: 0 } };
-      }
-
-      // Calculate weighted average progress
-      const totalWeight = tasks.reduce((sum, task) => sum + (task.estimatedHours || 1), 0);
-      const weightedProgress = tasks.reduce((sum, task) => {
-        const weight = task.estimatedHours || 1;
-        const progress = task.progress || 0;
-        return sum + (progress * weight);
-      }, 0);
-
-      const overallProgress = Math.round(weightedProgress / totalWeight);
-
-      // Update project progress
-      await updateDoc(doc(db, 'projects', projectId), {
-        progress: overallProgress,
-        updatedAt: new Date(),
-        lastProgressUpdate: new Date()
+      // Call backend API to update project progress
+      const response = await fetch(`/api/progress/project/${projectId}/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        }
       });
 
-      // Check if project is completed
-      if (overallProgress >= 100) {
-        await this.completeProject(projectId);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update project progress');
       }
 
+      const result = await response.json();
+      console.log(`Project progress updated via backend: ${projectId}`);
+      
       return {
         success: true,
-        data: { progress: overallProgress }
+        data: result.data
       };
     } catch (error) {
       console.error('Error updating project progress:', error);
       return {
         success: false,
-        error: errorHandling.handleApiError(error, 'updating project progress')
+        error: error.message
       };
     }
   }
 
-  // Complete project and notify client
-  async completeProject(projectId) {
-    try {
-      // Get project data
-      const projectDoc = await getDocs(query(collection(db, 'projects'), where('__name__', '==', projectId)));
-      if (projectDoc.empty) {
-        throw new Error('Project not found');
-      }
-
-      const project = { id: projectId, ...projectDoc.docs[0].data() };
-
-      // Update project status
-      await updateDoc(doc(db, 'projects', projectId), {
-        status: 'completed',
-        completedAt: new Date(),
-        updatedAt: new Date()
-      });
-
-      // Send completion notification
-      await this.sendProjectCompletionNotification(project);
-
-      console.log(`Project completed: ${projectId}`);
-      
-      return {
-        success: true,
-        data: { id: projectId, status: 'completed' }
-      };
-    } catch (error) {
-      console.error('Error completing project:', error);
-      return {
-        success: false,
-        error: errorHandling.handleApiError(error, 'completing project')
-      };
-    }
-  }
-
-  // Send progress notification to client
-  async sendProgressNotification(task, progressChange, userId) {
-    try {
-      if (!task.projectId) return;
-
-      // Get project data
-      const projectDoc = await getDocs(query(collection(db, 'projects'), where('__name__', '==', task.projectId)));
-      if (projectDoc.empty) return;
-
-      const project = { id: task.projectId, ...projectDoc.docs[0].data() };
-      
-      if (!project.clientEmail) return;
-
-      // Get freelancer data
-      const freelancerDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', userId)));
-      const freelancer = freelancerDoc.empty ? {} : freelancerDoc.docs[0].data();
-
-      // Create progress update record
-      const progressUpdate = {
-        projectId: task.projectId,
-        taskId: task.id,
-        taskTitle: task.title,
-        oldProgress: (task.progress || 0) - progressChange,
-        newProgress: task.progress || 0,
-        progressChange,
-        updatedBy: userId,
-        updatedAt: new Date(),
-        clientEmail: project.clientEmail,
-        freelancerName: freelancer.username || 'Freelancer',
-        projectTitle: project.title
-      };
-
-      // Save progress update
-      await addDoc(collection(db, 'progress_updates'), progressUpdate);
-
-      // Send email notification (this would integrate with your email service)
-      await this.sendProgressEmail(progressUpdate);
-
-      console.log(`Progress notification sent for task: ${task.id}`);
-    } catch (error) {
-      console.error('Error sending progress notification:', error);
-    }
-  }
-
-  // Send project completion notification
-  async sendProjectCompletionNotification(project) {
-    try {
-      if (!project.clientEmail) return;
-
-      // Get freelancer data
-      const freelancerDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', project.freelancerId)));
-      const freelancer = freelancerDoc.empty ? {} : freelancerDoc.docs[0].data();
-
-      // Create completion notification
-      const completionNotification = {
-        projectId: project.id,
-        projectTitle: project.title,
-        completedAt: new Date(),
-        clientEmail: project.clientEmail,
-        freelancerName: freelancer.username || 'Freelancer',
-        totalHours: project.totalHours || 0,
-        totalAmount: (project.totalHours || 0) * (project.hourlyRate || 0)
-      };
-
-      // Save completion notification
-      await addDoc(collection(db, 'completion_notifications'), completionNotification);
-
-      // Send email notification
-      await this.sendCompletionEmail(completionNotification);
-
-      console.log(`Completion notification sent for project: ${project.id}`);
-    } catch (error) {
-      console.error('Error sending completion notification:', error);
-    }
-  }
-
-  // Send progress email (placeholder - integrate with your email service)
-  async sendProgressEmail(progressUpdate) {
-    try {
-      // This would integrate with your email service
-      console.log('Sending progress email:', {
-        to: progressUpdate.clientEmail,
-        subject: `Progress Update: ${progressUpdate.projectTitle}`,
-        taskTitle: progressUpdate.taskTitle,
-        progressChange: progressUpdate.progressChange
-      });
-
-      // For now, just log the notification
-      // In a real implementation, this would call your email API
-    } catch (error) {
-      console.error('Error sending progress email:', error);
-    }
-  }
-
-  // Send completion email (placeholder - integrate with your email service)
-  async sendCompletionEmail(completionNotification) {
-    try {
-      // This would integrate with your email service
-      console.log('Sending completion email:', {
-        to: completionNotification.clientEmail,
-        subject: `Project Completed: ${completionNotification.projectTitle}`,
-        totalHours: completionNotification.totalHours,
-        totalAmount: completionNotification.totalAmount
-      });
-
-      // For now, just log the notification
-      // In a real implementation, this would call your email API
-    } catch (error) {
-      console.error('Error sending completion email:', error);
-    }
-  }
+  // Note: Project completion, notifications, and emails are now handled by the backend
+  // These methods have been removed from the frontend to improve security and centralize business logic
 
   // Get progress history for a project
   async getProjectProgressHistory(projectId) {

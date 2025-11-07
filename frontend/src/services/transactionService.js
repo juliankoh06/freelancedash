@@ -8,7 +8,6 @@ import {
   doc, 
   updateDoc, 
   deleteDoc, 
-  getDoc,
   onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../firebase-config';
@@ -22,8 +21,6 @@ class TransactionService {
   // Create a new transaction
   async createTransaction(transactionData) {
     try {
-      console.log('🔍 Creating transaction:', transactionData);
-      
       const transaction = new Transaction(transactionData);
       const validation = transaction.validate();
       
@@ -246,4 +243,5 @@ class TransactionService {
   }
 }
 
-export default new TransactionService();
+const transactionService = new TransactionService();
+export default transactionService;

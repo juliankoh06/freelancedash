@@ -5,31 +5,35 @@ import {
   CreditCard, 
   Clock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Briefcase,
+  Target,
+  TrendingDown
 } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase-config';
 
 const Finances = ({ user }) => {
   const [loading, setLoading] = useState(true);
+  const [selectedMonths, setSelectedMonths] = useState(6); // default to 6 months
   const [financialData, setFinancialData] = useState({
     totalEarnings: 0,
     monthlyEarnings: 0,
     pendingAmount: 0,
     overdueAmount: 0,
-    averagePaymentTime: 0,
     topClients: [],
     paymentMethods: {},
     monthlyTrend: [],
     recentTransactions: [],
-    projectEarnings: []
+  invoiceStats: { pending: 0, paid: 0, overdue: 0, total: 0 },
   });
+
 
   useEffect(() => {
     if (user && user.role === 'freelancer') {
       fetchFinancialData();
     }
-  }, [user]);
+  }, [user, selectedMonths]);
 
   const fetchFinancialData = async () => {
     try {
@@ -40,7 +44,7 @@ const Finances = ({ user }) => {
         return transaction.amount || transaction.total || 0;
       };
       
-      // Fetch invoices (without orderBy to avoid index requirement)
+      // Fetch invoices 
       const invoicesQuery = query(
         collection(db, 'invoices'),
         where('freelancerId', '==', user.uid)
@@ -48,7 +52,7 @@ const Finances = ({ user }) => {
       const invoicesSnapshot = await getDocs(invoicesQuery);
       const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      // Fetch transactions (without orderBy to avoid index requirement)
+      // Fetch transactions
       const transactionsQuery = query(
         collection(db, 'transactions'),
         where('freelancerId', '==', user.uid)
@@ -64,7 +68,7 @@ const Finances = ({ user }) => {
       const projectsSnapshot = await getDocs(projectsQuery);
       const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Calculate financial metrics from TRANSACTIONS (same as Transactions page)
+      // Calculate financial metrics
       const paidTransactions = transactions.filter(transaction => transaction.status === 'paid');
       const pendingTransactions = transactions.filter(transaction => transaction.status === 'pending');
       const overdueTransactions = transactions.filter(transaction => transaction.status === 'overdue');
@@ -89,16 +93,7 @@ const Finances = ({ user }) => {
         
 
       // Calculate average payment time
-      const paidInvoices = invoices.filter(invoice => 
-        invoice.status === 'paid' && invoice.createdAt && invoice.paidAt
-      );
-      const averagePaymentTime = paidInvoices.length > 0 
-        ? paidInvoices.reduce((sum, invoice) => {
-            const created = invoice.createdAt.toDate ? invoice.createdAt.toDate() : new Date(invoice.createdAt);
-            const paid = invoice.paidAt.toDate ? invoice.paidAt.toDate() : new Date(invoice.paidAt);
-            return sum + (paid - created) / (1000 * 60 * 60 * 24); // days
-          }, 0) / paidInvoices.length
-        : 0;
+      // (Removed) Calculate average payment time
 
       // Top clients by earnings (from transactions)
       const clientEarnings = {};
@@ -131,13 +126,12 @@ const Finances = ({ user }) => {
         paymentMethods[method].amount += getTransactionAmount(transaction);
       });
 
-      // Monthly trend (last 6 months)
+      // Monthly trend (user selectable)
       const monthlyTrend = [];
-      for (let i = 5; i >= 0; i--) {
+      for (let i = selectedMonths - 1; i >= 0; i--) {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        
         const monthEarnings = paidTransactions
           .filter(transaction => {
             if (!transaction.createdAt) return false;
@@ -147,44 +141,42 @@ const Finances = ({ user }) => {
                    transactionDate.getFullYear() === date.getFullYear();
           })
           .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
-
         monthlyTrend.push({
           month: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
           earnings: monthEarnings
         });
       }
 
-      // Recent transactions (already filtered above)
-      const recentTransactions = paidTransactions.slice(0, 10);
+      // Recent transactions: sort by createdAt descending to get latest
+      const recentTransactions = paidTransactions
+        .slice() 
+        .sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+          return dateB - dateA;
+        })
+        .slice(0, 10);
 
-      // Project earnings (from transactions)
-      const projectEarnings = projects.map(project => {
-        const projectTransactions = transactions.filter(transaction => transaction.projectId === project.id);
-        const projectTotal = projectTransactions
-          .filter(transaction => transaction.status === 'paid')
-          .reduce((sum, transaction) => sum + getTransactionAmount(transaction), 0);
-        
-        return {
-          projectId: project.id,
-          projectTitle: project.title,
-          clientEmail: project.clientEmail,
-          totalEarnings: projectTotal,
-          transactionCount: projectTransactions.length,
-          status: project.status
-        };
-      }).sort((a, b) => b.totalEarnings - a.totalEarnings);
+      // Invoice status breakdown (only those displayed)
+      const invoiceStats = {
+        pending: invoices.filter(inv => inv.status === 'sent').length, // Fixed: 'sent' invoices are pending payment
+        paid: invoices.filter(inv => inv.status === 'paid').length,
+        overdue: invoices.filter(inv => inv.status === 'overdue').length,
+        total: invoices.length
+      };
+
+
       
       setFinancialData({
-        totalEarnings, // Use actual calculated value
+        totalEarnings,
         monthlyEarnings,
         pendingAmount,
         overdueAmount,
-        averagePaymentTime: Math.round(averagePaymentTime),
         topClients,
         paymentMethods,
         monthlyTrend,
         recentTransactions,
-        projectEarnings
+        invoiceStats
       });
 
     } catch (error) {
@@ -224,7 +216,7 @@ const Finances = ({ user }) => {
         </div>
       </div>
 
-
+      {/* Key Metrics */}
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
@@ -280,7 +272,22 @@ const Finances = ({ user }) => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Monthly Earnings Trend */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Earnings Trend</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold text-gray-900">Monthly Earnings Trend</h3>
+            <div className="flex items-center">
+              <label htmlFor="monthRange" className="mr-2 text-sm font-medium text-gray-700">Show:</label>
+              <select
+                id="monthRange"
+                value={selectedMonths}
+                onChange={e => setSelectedMonths(Number(e.target.value))}
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+              >
+                <option value={6}>Last 6 months</option>
+                <option value={12}>Last 12 months</option>
+                <option value={24}>Last 24 months</option>
+              </select>
+            </div>
+          </div>
           <div className="h-64 flex items-end space-x-2">
             {financialData.monthlyTrend.map((month, index) => (
               <div key={index} className="flex-1 flex flex-col items-center">
@@ -363,73 +370,6 @@ const Finances = ({ user }) => {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Project Earnings */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Project Earnings</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transactions</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Earnings</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {financialData.projectEarnings.map((project) => (
-                <tr key={project.projectId}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {project.projectTitle}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {project.clientEmail}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      project.status === 'completed' ? 'bg-green-100 text-green-800' :
-                      project.status === 'active' ? 'bg-blue-100 text-blue-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {project.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {project.transactionCount}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                    RM{project.totalEarnings.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Financial Insights */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Insights</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-blue-600">{financialData.averagePaymentTime}</div>
-            <p className="text-sm text-gray-600">Average Payment Time (days)</p>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-green-600">
-              {financialData.totalEarnings > 0 ? 
-                Math.round((financialData.monthlyEarnings / financialData.totalEarnings) * 100) : 0}%
-            </div>
-            <p className="text-sm text-gray-600">This Month's Share</p>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-purple-600">{financialData.topClients.length}</div>
-            <p className="text-sm text-gray-600">Active Clients</p>
           </div>
         </div>
       </div>

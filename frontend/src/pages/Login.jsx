@@ -22,7 +22,7 @@ export default function Login() {
     setError('');
 
     if (!form.email.trim() || !form.password.trim()) {
-      setError('Email and password are required.');
+      setError('All fields are required.');
       setIsSubmitting(false);
       return;
     }
@@ -35,9 +35,15 @@ export default function Login() {
 
     try {
       // Send password to backend, which will verify and send OTP
-      await apiService.loginWithPassword(form.email, form.password);
-      setOtpSent(true);
-      setError('');
+      const response = await apiService.loginWithPassword(form.email, form.password);
+      
+      // Only proceed to OTP screen if the API call was successful
+      if (response && response.success) {
+        setOtpSent(true);
+        setError('');
+      } else {
+        setError(response?.message || 'Invalid email or password.');
+      }
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Invalid email or password.');
@@ -51,27 +57,27 @@ export default function Login() {
     setIsSubmitting(true);
     setError('');
 
-    if (!form.otp.trim()) {
-      setError('OTP is required.');
+    if (!form.email.trim() || !form.password.trim() || !form.otp.trim()) {
+      setError('All fields are required.');
       setIsSubmitting(false);
       return;
     }
 
     try {
-      console.log('🔐 Verifying OTP for:', form.email);
+      console.log(' Verifying OTP for:', form.email);
       const response = await apiService.verifyOTP(form.email, form.otp, form.password);
-      console.log('✅ OTP verification response:', response);
+      console.log(' OTP verification response:', response);
       
       // Sign in with the custom token from Firebase
       if (response.customToken) {
-        console.log('🔑 Signing in with custom token...');
+        console.log(' Signing in with custom token...');
         await signInWithCustomToken(auth, response.customToken);
-        console.log('✅ Successfully signed in with Firebase');
+        console.log(' Successfully signed in with Firebase');
         
         // Store user role in localStorage for easy access
         if (response.role) {
           localStorage.setItem('userRole', response.role);
-          console.log('✅ User role stored:', response.role);
+          console.log(' User role stored:', response.role);
         }
         
         // Navigate to appropriate dashboard based on role

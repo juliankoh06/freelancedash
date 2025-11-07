@@ -10,7 +10,6 @@ class User {
     this.role = data.role || 'freelancer'; // freelancer or client
     this.company = data.company || '';
     this.address = data.address || '';
-    this.country = data.country || '';
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }

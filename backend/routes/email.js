@@ -1,41 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const nodemailer = require('nodemailer');
 const { db } = require('../firebase-admin');
-
-// Email configuration
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'your-email@gmail.com',
-    pass: process.env.EMAIL_PASS || 'your-app-password'
-  }
-});
+const { transporter, sendProgressUpdateEmail } = require('../services/emailService');
 
 
-// Send invoice email
-router.post('/send-invoice', async (req, res) => {
-  try {
-    const { invoiceId, clientEmail, invoiceData } = req.body;
+// Helper function to send invoice email with PDF attachment
+async function sendInvoiceEmailWithPDF(invoiceId, invoiceData, pdfAttachment = null, updateStatus = true) {
+  const attachments = pdfAttachment ? [{
+    filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
+    content: pdfAttachment,
+    encoding: 'base64',
+    contentType: 'application/pdf'
+  }] : [];
 
-    const attachments = invoiceData.pdfAttachment ? [{
-      filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
-      content: invoiceData.pdfAttachment,
-      encoding: 'base64',
-      contentType: 'application/pdf'
-    }] : [];
+  const mailOptions = {
+    from: process.env.EMAIL_USER || 'your-email@gmail.com',
+    to: invoiceData.clientEmail,
+    subject: `Invoice ${invoiceData.invoiceNumber} - ${invoiceData.projectTitle}`,
+    html: generateInvoiceEmailHTML(invoiceData),
+    attachments: attachments
+  };
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER || 'your-email@gmail.com',
-      to: clientEmail,
-      subject: `Invoice ${invoiceData.invoiceNumber} - ${invoiceData.projectTitle}`,
-      html: generateInvoiceEmailHTML(invoiceData),
-      attachments: attachments
-    };
-
-    const result = await transporter.sendMail(mailOptions);
-    
-    // Update invoice status if invoice exists in database
+  const result = await transporter.sendMail(mailOptions);
+  
+  // Update invoice status if invoice exists in database
+  if (updateStatus && invoiceId && db) {
     try {
       const invoiceRef = db.collection('invoices').doc(invoiceId);
       const invoiceDoc = await invoiceRef.get();
@@ -52,12 +41,22 @@ router.post('/send-invoice', async (req, res) => {
     } catch (updateError) {
       console.log('⚠️ Could not update invoice status:', updateError.message);
     }
+  }
 
-    res.json({ 
-      success: true, 
-      messageId: result.messageId,
-      message: 'Invoice sent successfully' 
-    });
+  return {
+    success: true,
+    messageId: result.messageId,
+    message: 'Invoice sent successfully'
+  };
+}
+
+// Send invoice email
+router.post('/send-invoice', async (req, res) => {
+  try {
+    const { invoiceId, clientEmail, invoiceData } = req.body;
+
+    const result = await sendInvoiceEmailWithPDF(invoiceId, invoiceData, invoiceData.pdfAttachment, true);
+    res.json(result);
   } catch (error) {
     console.error('Error sending invoice email:', error);
     
@@ -122,67 +121,20 @@ router.post('/send-followup', async (req, res) => {
   }
 });
 
-// Send invitation email
-router.post('/send-invitation', async (req, res) => {
-  try {
-    const { clientEmail, invitationLink, projectTitle, freelancerName, freelancerEmail } = req.body;
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER || 'your-email@gmail.com',
-      to: clientEmail,
-      subject: `You're invited to collaborate on "${projectTitle}"`,
-      html: generateInvitationEmailHTML({
-        clientEmail,
-        invitationLink,
-        projectTitle,
-        freelancerName,
-        freelancerEmail
-      })
-    };
-
-    const result = await transporter.sendMail(mailOptions);
-    
-    // Log invitation email (optional - skip if Firebase not configured)
-    try {
-      if (db) {
-        await db.collection('email_logs').add({
-          type: 'invitation',
-          sentAt: new Date(),
-          emailMessageId: result.messageId,
-          clientEmail,
-          projectTitle,
-          freelancerName
-        });
-      }
-    } catch (logError) {
-      console.warn('⚠️ Could not log invitation email to Firestore:', logError.message);
-    }
-
-    res.json({ 
-      success: true, 
-      messageId: result.messageId,
-      message: 'Invitation email sent successfully' 
-    });
-  } catch (error) {
-    console.error('Error sending invitation email:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // Send progress update notification
 router.post('/send-progress-update', async (req, res) => {
   try {
     const { projectId, clientEmail, updateData } = req.body;
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER || 'your-email@gmail.com',
-      to: clientEmail,
-      subject: `Project Update: ${updateData.projectTitle}`,
-      html: generateProgressUpdateEmailHTML(updateData)
-    };
-
-    const result = await transporter.sendMail(mailOptions);
+    console.log('[Progress Email] Attempting to send to:', clientEmail);
     
+    const result = await sendProgressUpdateEmail({
+      to: clientEmail,
+      projectTitle: updateData.projectTitle,
+      updateText: updateData.comment || updateData.updateText || '',
+      freelancerName: updateData.freelancerName || ''
+    });
+    
+    console.log('[Progress Email] Sent. MessageId:', result.messageId);
     // Log notification (optional - skip if Firebase not configured)
     try {
       if (db) {
@@ -198,7 +150,6 @@ router.post('/send-progress-update', async (req, res) => {
     } catch (logError) {
       console.warn('⚠️ Could not log notification to Firestore:', logError.message);
     }
-
     res.json({ 
       success: true, 
       messageId: result.messageId,
@@ -206,6 +157,60 @@ router.post('/send-progress-update', async (req, res) => {
     });
   } catch (error) {
     console.error('Error sending progress update:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Send comment notification
+router.post('/send-comment-notification', async (req, res) => {
+  try {
+    const { projectId, recipientEmail, commenterName, commenterRole, commentText, projectTitle } = req.body;
+    
+    if (!recipientEmail) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Recipient email is required' 
+      });
+    }
+
+    console.log('[Comment Email] Attempting to send to:', recipientEmail);
+    
+    const { sendCommentNotificationEmail } = require('../services/emailService');
+    const result = await sendCommentNotificationEmail({
+      projectId,
+      recipientEmail,
+      commenterName: commenterName || 'A user',
+      commenterRole: commenterRole || 'user',
+      commentText: commentText || '',
+      projectTitle: projectTitle || 'Project'
+    });
+    
+    console.log('[Comment Email] Sent. MessageId:', result.messageId);
+    
+    // Log notification (optional)
+    try {
+      if (db) {
+        await db.collection('notifications').add({
+          projectId,
+          type: 'comment_notification',
+          sentAt: new Date(),
+          emailMessageId: result.messageId,
+          recipientEmail,
+          commenterName,
+          commenterRole
+        });
+      }
+    } catch (logError) {
+      console.warn('⚠️ Could not log notification to Firestore:', logError.message);
+    }
+    
+    res.json({ 
+      success: true, 
+      messageId: result.messageId,
+      message: 'Comment notification sent successfully' 
+    });
+  } catch (error) {
+    console.error('Error sending comment notification:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -314,8 +319,16 @@ async function sendFollowUpEmail(invoice, followUpType) {
   return result;
 }
 
-// Email template generators
+
+// Generate invoice email HTML template
 function generateInvoiceEmailHTML(invoiceData) {
+  const dueDate = invoiceData.dueDate ? new Date(invoiceData.dueDate).toLocaleDateString() : 'N/A';
+  const issueDate = invoiceData.issueDate ? new Date(invoiceData.issueDate).toLocaleDateString() : new Date().toLocaleDateString();
+  const taxRate = invoiceData.taxRate || 0;
+  const taxAmount = invoiceData.taxAmount || invoiceData.tax || 0;
+  const totalAmount = invoiceData.totalAmount || invoiceData.total || 0;
+  const subtotal = invoiceData.subtotal || invoiceData.amount || 0;
+
   return `
     <!DOCTYPE html>
     <html>
@@ -323,39 +336,59 @@ function generateInvoiceEmailHTML(invoiceData) {
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
-        .invoice-details { background-color: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 5px; }
-        .total { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; }
-        .button { background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 20px; }
+        .header { background-color: #007bff; color: white; padding: 20px; text-align: center; }
+        .content { background-color: #f9f9f9; padding: 20px; }
+        .invoice-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #007bff; color: white; }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>Invoice ${invoiceData.invoiceNumber}</h1>
-          <p>Project: ${invoiceData.projectTitle}</p>
+          <h1>Invoice ${invoiceData.invoiceNumber || 'N/A'}</h1>
         </div>
-        
-        <div class="invoice-details">
-          <p>Dear ${invoiceData.clientName},</p>
-          <p>Please find attached your invoice for the work completed on <strong>${invoiceData.projectTitle}</strong>.</p>
-          <p><strong>📎 A downloadable PDF copy of this invoice is attached to this email.</strong></p>
-          
-          <h3>Invoice Summary:</h3>
-          <ul>
-            <li>Invoice Number: ${invoiceData.invoiceNumber}</li>
-            <li>Date: ${new Date(invoiceData.issueDate || invoiceData.date).toLocaleDateString()}</li>
-            <li>Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}</li>
-            <li>Total Amount: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</li>
-          </ul>
-          
-          <div class="total">
-            <h3>Payment Details:</h3>
-            <p><strong>Total Due: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
-            <p>Please remit payment by the due date to avoid any late fees.</p>
+        <div class="content">
+          <p>Hello ${invoiceData.clientName || 'Client'},</p>
+          <p>An invoice has been generated for ${invoiceData.projectTitle || 'your project'}:</p>
+          <div class="invoice-details">
+            <h3>Invoice Details</h3>
+            <p><strong>Invoice Number:</strong> ${invoiceData.invoiceNumber || 'N/A'}</p>
+            <p><strong>Issue Date:</strong> ${issueDate}</p>
+            <p><strong>Due Date:</strong> ${dueDate}</p>
+            <p><strong>Project:</strong> ${invoiceData.projectTitle || 'N/A'}</p>
+            ${invoiceData.milestoneTitle ? `<p><strong>Milestone:</strong> ${invoiceData.milestoneTitle}</p>` : ''}
           </div>
-          
-          <p>If you have any questions about this invoice, please don't hesitate to contact me.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Rate</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(invoiceData.lineItems || []).map(item => `
+                <tr>
+                  <td>${item.description || ''}</td>
+                  <td>${item.quantity || ''}</td>
+                  <td>RM${Number(item.rate || 0).toFixed(2)}</td>
+                  <td>RM${Number(item.amount || 0).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div style="text-align: right; margin-top: 20px;">
+            <p><strong>Subtotal:</strong> RM${Number(subtotal).toFixed(2)}</p>
+            ${taxAmount > 0 ? `<p><strong>Tax (${(taxRate * 100).toFixed(0)}%):</strong> RM${Number(taxAmount).toFixed(2)}</p>` : ''}
+            <p style="font-size: 18px;"><strong>Total:</strong> RM${Number(totalAmount).toFixed(2)}</p>
+          </div>
+          ${invoiceData.paymentTerms ? `<p><strong>Payment Terms:</strong> ${invoiceData.paymentTerms}</p>` : ''}
+          <p>Please find the invoice PDF attached to this email.</p>
+          <p>You can also check your dashboard to view and pay the invoice.</p>
           <p>Thank you for your business!</p>
         </div>
       </div>
@@ -364,9 +397,11 @@ function generateInvoiceEmailHTML(invoiceData) {
   `;
 }
 
+// Generate follow-up email HTML template
 function generateFollowUpEmailHTML(invoiceData, followUpType) {
-  const urgency = followUpType === 'overdue' ? 'urgent' : 'friendly';
-  const subject = followUpType === 'overdue' ? 'Overdue Payment' : 'Payment Reminder';
+  const dueDate = invoiceData.dueDate ? new Date(invoiceData.dueDate).toLocaleDateString() : 'N/A';
+  const totalAmount = invoiceData.totalAmount || invoiceData.total || 0;
+  const isOverdue = followUpType === 'overdue';
   
   return `
     <!DOCTYPE html>
@@ -375,104 +410,29 @@ function generateFollowUpEmailHTML(invoiceData, followUpType) {
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: ${followUpType === 'overdue' ? '#f8d7da' : '#d1ecf1'}; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
-        .urgent { color: #721c24; }
-        .reminder { color: #0c5460; }
+        .header { background-color: ${isOverdue ? '#dc3545' : '#ffc107'}; color: white; padding: 20px; text-align: center; }
+        .content { background-color: #f9f9f9; padding: 20px; }
+        .invoice-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
+        .button { display: inline-block; padding: 12px 24px; background-color: ${isOverdue ? '#dc3545' : '#ffc107'}; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1 class="${urgency}">${subject}</h1>
-          <p>Invoice: ${invoiceData.invoiceNumber}</p>
+          <h1>${isOverdue ? '⚠️ Invoice Overdue' : '💰 Payment Reminder'}</h1>
         </div>
-        
-        <div>
-          <p>Dear ${invoiceData.clientName},</p>
-          <p>This is a ${followUpType === 'overdue' ? 'friendly reminder' : 'gentle reminder'} regarding your outstanding invoice <strong>${invoiceData.invoiceNumber}</strong> for the project <strong>${invoiceData.projectTitle}</strong>.</p>
-          
-          <p><strong>Amount Due: ${invoiceData.currency || 'RM'} ${Number(invoiceData.totalAmount || invoiceData.total || 0).toFixed(2)}</strong></p>
-          <p>Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}</p>
-          
-          ${followUpType === 'overdue' ? 
-            '<p class="urgent"><strong>This invoice is now overdue. Please remit payment as soon as possible to avoid any additional charges.</strong></p>' :
-            '<p>Please remit payment by the due date to avoid any late fees.</p>'
-          }
-          
-          <p>If you have already made this payment, please disregard this notice. If you have any questions or concerns, please contact me immediately.</p>
-          
-          <p>Thank you for your prompt attention to this matter.</p>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-}
-
-function generateInvitationEmailHTML(data) {
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
-        .content { background-color: #fff; border: 1px solid #ddd; padding: 30px; border-radius: 10px; }
-        .button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; margin: 20px 0; font-weight: bold; text-align: center; }
-        .button:hover { opacity: 0.9; }
-        .features { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .feature-item { margin: 10px 0; padding-left: 20px; position: relative; }
-        .feature-item:before { content: "✓"; position: absolute; left: 0; color: #28a745; font-weight: bold; }
-        .footer { text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; color: #666; font-size: 14px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>🎉 You're Invited to Collaborate!</h1>
-          <p>Join a professional project management platform</p>
-        </div>
-        
         <div class="content">
-          <p>Hello!</p>
-          
-          <p><strong>${data.freelancerName}</strong> has invited you to collaborate on the project:</p>
-          
-          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea;">
-            <h2 style="margin: 0; color: #333;">${data.projectTitle}</h2>
-            <p style="margin: 10px 0 0 0; color: #666;">Project collaboration invitation</p>
+          <p>Hello ${invoiceData.clientName || 'Client'},</p>
+          <p>This is a ${isOverdue ? 'reminder that your invoice is overdue' : 'friendly reminder'} regarding your invoice:</p>
+          <div class="invoice-details">
+            <h3>Invoice ${invoiceData.invoiceNumber || 'N/A'}</h3>
+            <p><strong>Project:</strong> ${invoiceData.projectTitle || 'N/A'}</p>
+            <p><strong>Amount Due:</strong> RM${Number(totalAmount).toFixed(2)}</p>
+            <p><strong>Due Date:</strong> ${dueDate}</p>
           </div>
-          
-          <p>This invitation gives you access to:</p>
-          
-          <div class="features">
-            <div class="feature-item">Real-time project progress tracking</div>
-            <div class="feature-item">Direct communication with your freelancer</div>
-            <div class="feature-item">Secure file sharing and collaboration</div>
-            <div class="feature-item">Transparent billing and time tracking</div>
-            <div class="feature-item">Professional project management tools</div>
-          </div>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${data.invitationLink}" class="button">Accept Invitation & Get Started</a>
-          </div>
-          
-          <p><strong>What happens next?</strong></p>
-          <ol>
-            <li>Click the button above to accept the invitation</li>
-            <li>Create a simple account (just email and password)</li>
-            <li>Start collaborating on your project immediately</li>
-          </ol>
-          
-          <p>This invitation will expire in 7 days. If you have any questions, you can contact ${data.freelancerName} directly at ${data.freelancerEmail}.</p>
-          
-          <p>Best regards,<br><strong>The FreelanceDash Team</strong></p>
-        </div>
-        
-        <div class="footer">
-          <p>This invitation was sent to ${data.clientEmail}</p>
-          <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+          <p>${isOverdue ? 'Please make payment as soon as possible to avoid any further action.' : 'Please make payment at your earliest convenience.'}</p>
+          <p>Please check your dashboard to view the invoice.</p>
+          <p>Thank you for your attention to this matter.</p>
         </div>
       </div>
     </body>
@@ -481,6 +441,38 @@ function generateInvitationEmailHTML(data) {
 }
 
 function generateProgressUpdateEmailHTML(updateData) {
+  // If the new structure (comment, attachments) is present, use a simple template
+  if (updateData.comment) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #e7f3ff; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Project Progress Update</h1>
+            <p>Project: ${updateData.projectTitle}</p>
+          </div>
+          <div>
+            <p>Hello,</p>
+            <p>Your freelancer <strong>${updateData.freelancerName || ''}</strong> has posted a new update:</p>
+            <blockquote style="background:#f8f9fa;padding:15px;border-left:4px solid #007bff;">${updateData.comment}</blockquote>
+            ${updateData.attachments && updateData.attachments.length > 0 ? `<p>${updateData.attachments.length} attachment(s) included. Please check your dashboard to view them.</p>` : ''}
+            <p>Please check your dashboard for more details.</p>
+            <p>Best regards,<br>${updateData.freelancerName || ''}</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+  // Fallback to the old structure
   return `
     <!DOCTYPE html>
     <html>
@@ -498,26 +490,21 @@ function generateProgressUpdateEmailHTML(updateData) {
           <h1>Project Progress Update</h1>
           <p>Project: ${updateData.projectTitle}</p>
         </div>
-        
         <div>
-          <p>Dear ${updateData.clientName},</p>
+          <p>Dear ${updateData.clientName || ''},</p>
           <p>I wanted to update you on the progress of your project <strong>${updateData.projectTitle}</strong>.</p>
-          
           <h3>Recent Updates:</h3>
-          ${updateData.updates.map(update => `
+          ${updateData.updates && Array.isArray(updateData.updates) ? updateData.updates.map(update => `
             <div class="progress-item">
               <h4>${update.title}</h4>
               <p>${update.description}</p>
               <p><small>Status: ${update.status} | Completed: ${update.completionPercentage}%</small></p>
             </div>
-          `).join('')}
-          
+          `).join('') : ''}
           <h3>Overall Progress:</h3>
-          <p>Project is currently <strong>${updateData.overallProgress}%</strong> complete.</p>
-          
+          <p>Project is currently <strong>${updateData.overallProgress || 0}%</strong> complete.</p>
           <p>If you have any questions or would like to discuss any aspect of the project, please don't hesitate to contact me.</p>
-          
-          <p>Best regards,<br>${updateData.freelancerName}</p>
+          <p>Best regards,<br>${updateData.freelancerName || ''}</p>
         </div>
       </div>
     </body>
@@ -525,4 +512,47 @@ function generateProgressUpdateEmailHTML(updateData) {
   `;
 }
 
+// Send milestone completion notification email to client
+router.post('/milestone-completion', async (req, res) => {
+  try {
+    const { sendMilestoneCompletionEmail } = require('../services/emailService');
+    const milestoneData = req.body;
+
+    await sendMilestoneCompletionEmail(milestoneData);
+
+    res.json({
+      success: true,
+      message: 'Milestone completion email sent successfully'
+    });
+  } catch (error) {
+    console.error('Error sending milestone completion email:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Send payment received notification email to freelancer
+router.post('/payment-received', async (req, res) => {
+  try {
+    const { sendPaymentReceivedEmail } = require('../services/emailService');
+    const paymentData = req.body;
+
+    await sendPaymentReceivedEmail(paymentData);
+
+    res.json({
+      success: true,
+      message: 'Payment received email sent successfully'
+    });
+  } catch (error) {
+    console.error('Error sending payment received email:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
+module.exports.sendInvoiceEmailWithPDF = sendInvoiceEmailWithPDF;

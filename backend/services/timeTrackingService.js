@@ -1,8 +1,8 @@
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 
 class TimeTrackingService {
   constructor() {
-    this.db = admin.firestore();
+    this.db = db;
     this.activeSessions = new Map();
   }
 
@@ -41,8 +41,6 @@ class TimeTrackingService {
         duration: 0,
         status: 'active',
         notes: '',
-        idleTime: 0,
-        lastActivity: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       };
@@ -138,82 +136,6 @@ class TimeTrackingService {
     }
   }
 
-  // Update activity timestamp (for idle detection)
-  async updateActivity(taskId, userId) {
-    try {
-      const session = await this.getActiveSession(taskId, userId);
-      if (!session) return;
-
-      await this.db.collection('time_sessions').doc(session.sessionId).update({
-        lastActivity: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Error updating activity:', error);
-    }
-  }
-
-  // Check for idle sessions and pause them
-  async checkIdleSessions() {
-    try {
-      const now = new Date();
-      const idleThreshold = 15 * 60 * 1000; // 15 minutes in milliseconds
-
-      for (const [key, session] of this.activeSessions) {
-        const sessionDoc = await this.db.collection('time_sessions').doc(session.sessionId).get();
-        const sessionData = sessionDoc.data();
-
-        if (sessionData.lastActivity) {
-          const lastActivity = sessionData.lastActivity.toDate();
-          const timeSinceActivity = now - lastActivity;
-
-          if (timeSinceActivity > idleThreshold) {
-            // Pause session due to inactivity
-            await this.pauseSession(session.sessionId, 'Idle timeout');
-            this.activeSessions.delete(key);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error checking idle sessions:', error);
-    }
-  }
-
-  // Pause session due to inactivity
-  async pauseSession(sessionId, reason) {
-    try {
-      const sessionDoc = await this.db.collection('time_sessions').doc(sessionId).get();
-      const sessionData = sessionDoc.data();
-
-      const startTime = sessionData.startTime.toDate();
-      const endTime = new Date();
-      const duration = (endTime - startTime) / (1000 * 60 * 60);
-
-      await this.db.collection('time_sessions').doc(sessionId).update({
-        endTime: admin.firestore.FieldValue.serverTimestamp(),
-        duration,
-        status: 'paused',
-        pauseReason: reason,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-      // Update task
-      await this.db.collection('tasks').doc(sessionData.taskId).update({
-        trackingStartTime: null,
-        currentSessionId: null,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-      // Log audit event
-      await this.logAuditEvent('time_tracking_paused', {
-        sessionId,
-        taskId: sessionData.taskId,
-        reason,
-        duration
-      });
-    } catch (error) {
-      console.error('Error pausing session:', error);
-    }
-  }
 
   // Get active session for a task and user
   async getActiveSession(taskId, userId) {

@@ -169,9 +169,9 @@ const ClientApprovalView = ({ projectId, onApprovalUpdate, user }) => {
   };
 
   const prepareInvoiceData = () => {
-    const totalAmount = completionRequest.totalAmount || 0;
-    const totalHours = completionRequest.totalHours || 0;
-    const hourlyRate = completionRequest.hourlyRate || 0;
+  const totalAmount = completionRequest.totalAmount || 0;
+  const totalHours = Number(completionRequest.totalHours) || 0;
+  const hourlyRate = Number(completionRequest.hourlyRate) || 0;
 
     // Extract client name from user data or email
     const clientName = user?.displayName || 

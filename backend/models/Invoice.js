@@ -9,7 +9,7 @@ class Invoice {
     this.clientId = data.clientId;
     this.clientEmail = data.clientEmail;
     this.amount = data.amount;
-    this.tax = data.tax || 0;
+    this.taxAmount = data.taxAmount || 0;
     this.total = data.total;
     this.status = data.status || 'pending'; // pending, sent, paid, overdue
     this.dueDate = data.dueDate;

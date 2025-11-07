@@ -12,14 +12,15 @@ import Projects from './pages/Projects';
 import Invoices from './pages/Invoices';
 import Clients from './pages/Clients';
 import ProjectTracking from './pages/ProjectTracking';
+import ProjectTrackingView from './pages/ProjectTrackingView';
 import Transactions from './pages/Transactions';
 import Finances from './pages/Finances';
 import Settings from './pages/Settings';
 import ClientDashboard from './pages/ClientDashboard';
+import ClientDashboardView from './pages/ClientDashboardView';
+import ClientProjectProgressView from './pages/ClientProjectProgressView';
 import ClientInvitations from './pages/ClientInvitations';
-import ClientTransactions from './pages/ClientTransactions';
 import ClientPayments from './pages/ClientPayments';
-import ProjectProgress from './pages/ProjectProgress';
 import InvitationAcceptance from './pages/InvitationAcceptance';
 import ContractReview from './pages/ContractReview';
 
@@ -126,6 +127,10 @@ function App() {
       <div className="App">
         <Routes>
           <Route 
+            path="/project/:projectId/tracking" 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><ProjectTrackingView /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+          />
+          <Route 
             path="/" 
             element={isLoadingAuth ? null : (isAuthenticated ? (
               currentUser?.role === 'client' ? 
@@ -159,7 +164,7 @@ function App() {
           />
           <Route 
             path="/transactions" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role !== 'client' ? <Layout user={currentUser}><Transactions user={currentUser} /></Layout> : <Navigate to={currentUser?.role === 'client' ? '/client-dashboard' : '/login'} />)} 
+            element={isLoadingAuth ? null : (isAuthenticated ? <Layout user={currentUser}><Transactions user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
           <Route 
             path="/finances" 
@@ -172,6 +177,10 @@ function App() {
           
           {/* Client Routes */}
           <Route 
+            path="/client/project/:projectId/progress" 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientProjectProgressView user={currentUser} /></Layout> : <Navigate to="/login" />)} 
+          />
+          <Route 
             path="/client-dashboard" 
             element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientDashboard user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
@@ -180,20 +189,12 @@ function App() {
             element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientInvitations user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
           <Route 
-            path="/client-transactions" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientTransactions user={currentUser} /></Layout> : <Navigate to="/login" />)} 
-          />
-          <Route 
             path="/client-payments" 
             element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientPayments user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
           <Route 
             path="/project-progress/:projectId" 
-            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? (
-              (() => {
-                return <ProjectProgress />;
-              })()
-            ) : <Navigate to="/login" />)} 
+            element={isLoadingAuth ? null : (isAuthenticated && currentUser?.role === 'client' ? <Layout user={currentUser}><ClientDashboardView user={currentUser} /></Layout> : <Navigate to="/login" />)} 
           />
           
           {/* Invitation Route - No authentication required */}
@@ -223,6 +224,10 @@ function App() {
           <Route 
             path="/reset-password" 
             element={<ResetPassword />} 
+          />
+          <Route 
+            path="/payment" 
+            element={<Navigate to="/client-payments" />} 
           />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

@@ -1,8 +1,8 @@
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 
 class InvoiceCalculationService {
   constructor() {
-    this.db = admin.firestore();
+    this.db = db;
   }
 
   // Server-side invoice calculation with validation
@@ -25,8 +25,8 @@ class InvoiceCalculationService {
         const quantity = parseFloat(item.quantity);
         const rate = parseFloat(item.rate);
         
-        if (isNaN(quantity) || quantity <= 0) {
-          throw new Error('Line item quantity must be greater than 0');
+        if (isNaN(quantity) || quantity < 0) {
+          throw new Error('Line item quantity cannot be negative');
         }
         
         if (isNaN(rate) || rate < 0) {
@@ -66,7 +66,7 @@ class InvoiceCalculationService {
     const errors = [];
 
     // Required fields validation
-    if (!invoiceData.projectId) errors.push('Project ID is required');
+    // projectId is now optional for custom invoices
     if (!invoiceData.clientEmail) errors.push('Client email is required');
     if (!invoiceData.freelancerId) errors.push('Freelancer ID is required');
     if (!invoiceData.dueDate) errors.push('Due date is required');
@@ -132,7 +132,7 @@ class InvoiceCalculationService {
         ...invoiceData,
         ...calculations,
         invoiceNumber,
-        status: 'draft',
+        status: 'sent', // Set to 'sent' so payment button appears for clients
         requiresClientApproval: true,
         clientApproved: false,
         clientApprovedAt: null,
@@ -147,7 +147,8 @@ class InvoiceCalculationService {
         invoiceId: docRef.id,
         projectId: invoiceData.projectId,
         freelancerId: invoiceData.freelancerId,
-        totalAmount: calculations.totalAmount
+        totalAmount: calculations.totalAmount,
+        totalHours: invoiceData.totalHours || 0
       });
 
       return {
@@ -235,4 +236,4 @@ class InvoiceCalculationService {
   }
 }
 
-module.exports = new InvoiceCalculationService();
+module.exports = InvoiceCalculationService;

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 const financialCalculationService = require('../services/financialCalculationService');
 const dataConsistencyService = require('../services/dataConsistencyService');
 const { authenticateToken } = require('../middleware/auth');
@@ -12,7 +12,7 @@ router.get('/project/:projectId', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Verify user has access to this project
-    const projectDoc = await admin.firestore().collection('projects').doc(projectId).get();
+    const projectDoc = await db.collection('projects').doc(projectId).get();
     if (!projectDoc.exists) {
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
@@ -76,7 +76,7 @@ router.get('/validate/:projectId', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Verify user has access to this project
-    const projectDoc = await admin.firestore().collection('projects').doc(projectId).get();
+    const projectDoc = await db.collection('projects').doc(projectId).get();
     if (!projectDoc.exists) {
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
@@ -101,7 +101,7 @@ router.post('/recalculate/:projectId', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Verify user has access to this project
-    const projectDoc = await admin.firestore().collection('projects').doc(projectId).get();
+    const projectDoc = await db.collection('projects').doc(projectId).get();
     if (!projectDoc.exists) {
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
@@ -125,7 +125,7 @@ router.get('/consistency/check', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Only allow freelancers to check data consistency
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists || userDoc.data().role !== 'freelancer') {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
@@ -144,7 +144,7 @@ router.post('/consistency/fix', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
 
     // Only allow freelancers to fix data consistency
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists || userDoc.data().role !== 'freelancer') {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }

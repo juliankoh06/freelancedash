@@ -8,12 +8,12 @@ class Project {
     this.freelancerId = data.freelancerId;
     this.clientId = data.clientId;
     this.clientEmail = data.clientEmail; // Add client email support
-    this.status = data.status || 'draft'; // draft, pending_invitation, pending_contract, pending_client_signature, pending_freelancer_signature, active, completed, cancelled
+    this.status = data.status || 'draft'; // draft, pending_invitation, pending_contract, pending_client_signature, pending_freelancer_signature, active, overdue, completed,, cancelled, rejected, archived, invitation_expired, contract_rejected
     this.priority = data.priority || 'medium'; // low, medium, high
     this.deadline = data.deadline;
     this.budget = data.budget;
-    this.currency = data.currency || 'USD';
-    this.tags = data.tags || [];
+    this.freelancerVisible = data.freelancerVisible !== false;
+    this.clientVisible = data.clientVisible !== false; 
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }

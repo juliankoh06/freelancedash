@@ -61,6 +61,24 @@
       ]
     },
     {
+      "collectionGroup": "project_comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "updateId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "invoices",
       "queryScope": "COLLECTION",
       "fields": [
@@ -226,6 +244,31 @@
           "fieldPath": "createdAt",
           "order": "ASCENDING"
         }
+      ]
+    },
+    {
+      "collectionGroup": "project_comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "updateId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "project_comments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "updateId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
   ],

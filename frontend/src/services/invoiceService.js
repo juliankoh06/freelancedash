@@ -4,7 +4,6 @@ import {
   where, 
   orderBy, 
   getDocs, 
-  addDoc, 
   doc, 
   updateDoc, 
   deleteDoc, 
@@ -23,8 +22,6 @@ class InvoiceService {
   // Create a new invoice with server-side validation
   async createInvoice(invoiceData) {
     try {
-      console.log('🔍 Creating invoice with server validation:', invoiceData);
-      
       // Send to backend for server-side validation and calculation
       const response = await fetch('/api/invoices', {
         method: 'POST',
@@ -36,8 +33,19 @@ class InvoiceService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create invoice');
+        // Try to parse JSON error, but fall back to text when server returns HTML or plain text
+        let errText = null;
+        try {
+          const errorData = await response.json();
+          errText = errorData.error || JSON.stringify(errorData);
+        } catch (parseErr) {
+          try {
+            errText = await response.text();
+          } catch (tErr) {
+            errText = `HTTP ${response.status} ${response.statusText}`;
+          }
+        }
+        throw new Error(errText || `Failed to create invoice (status ${response.status})`);
       }
 
       const result = await response.json();
@@ -100,16 +108,57 @@ class InvoiceService {
     try {
       console.log('🔍 Fetching invoices for project:', projectId);
       
-      const q = query(
-        collection(db, this.collectionName),
-        where('projectId', '==', projectId),
-        orderBy('createdAt', 'desc')
-      );
+      let snapshot;
       
-      const snapshot = await getDocs(q);
+      // Try with orderBy first (requires index)
+      try {
+        const q = query(
+          collection(db, this.collectionName),
+          where('projectId', '==', projectId),
+          orderBy('createdAt', 'desc')
+        );
+        snapshot = await getDocs(q);
+      } catch (orderByError) {
+        // If orderBy fails (missing index), fall back to basic query
+        if (orderByError.code === 'failed-precondition') {
+          console.warn('⚠️ Index missing, fetching without sort:', orderByError.message);
+          const q = query(
+            collection(db, this.collectionName),
+            where('projectId', '==', projectId)
+          );
+          snapshot = await getDocs(q);
+        } else {
+          throw orderByError;
+        }
+      }
+      
       const invoices = snapshot.docs.map(doc => 
         Invoice.fromFirebase(doc)
       );
+      
+      // Sort manually if we used the fallback query
+      if (!snapshot.empty && invoices.length > 0) {
+        const firstDoc = snapshot.docs[0];
+        const firstData = firstDoc.data();
+        // If createdAt exists but we couldn't use orderBy, sort manually
+        if (firstData.createdAt) {
+          invoices.sort((a, b) => {
+            const getTime = (date) => {
+              if (!date) return 0;
+              // Handle Firestore Timestamp
+              if (date.toMillis && typeof date.toMillis === 'function') return date.toMillis();
+              // Handle Date object
+              if (date instanceof Date) return date.getTime();
+              // Handle string
+              if (typeof date === 'string') return new Date(date).getTime();
+              // Handle number
+              if (typeof date === 'number') return date;
+              return 0;
+            };
+            return getTime(b.createdAt) - getTime(a.createdAt); // Descending
+          });
+        }
+      }
       
       console.log('✅ Fetched project invoices:', invoices.length);
       return { success: true, invoices };
@@ -143,29 +192,6 @@ class InvoiceService {
     }
   }
 
-  // Get invoices for a specific project
-  async getProjectInvoices(projectId) {
-    try {
-      console.log('🔍 Fetching invoices for project:', projectId);
-
-      const q = query(
-        collection(db, this.collectionName),
-        where('projectId', '==', projectId),
-        orderBy('createdAt', 'desc')
-      );
-
-      const snapshot = await getDocs(q);
-      const invoices = snapshot.docs.map(doc =>
-        Invoice.fromFirebase(doc)
-      );
-
-      console.log('✅ Fetched project invoices:', invoices.length);
-      return { success: true, invoices };
-    } catch (error) {
-      console.error('❌ Error fetching project invoices:', error);
-      throw error;
-    }
-  }
 
   // Get invoices for a client
   async getClientInvoices(clientId) {
@@ -297,33 +323,39 @@ class InvoiceService {
   async sendInvoiceEmail(invoiceId) {
     try {
       console.log('🔍 Sending invoice email for:', invoiceId);
-      
+
       // Get invoice data first
       const invoiceDoc = await getDoc(doc(db, this.collectionName, invoiceId));
       if (!invoiceDoc.exists()) {
         throw new Error('Invoice not found');
       }
-      
+
       const invoiceData = { id: invoiceDoc.id, ...invoiceDoc.data() };
-      
-      // Generate PDF for attachment
+
+      // Generate PDF for attachment using FileReader for base64
       let pdfAttachment = null;
       try {
         const { InvoicePDFGenerator } = await import('../utils/pdfGenerator');
         const pdfGenerator = new InvoicePDFGenerator();
         const pdfBlob = pdfGenerator.generatePDFBlob(invoiceData);
-        
-        // Convert blob to base64 for email attachment
-        const arrayBuffer = await pdfBlob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
-        pdfAttachment = base64;
+
+        // Convert blob to base64 using FileReader
+        pdfAttachment = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            // reader.result is a data URL: "data:application/pdf;base64,..."
+            const base64 = reader.result.split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(pdfBlob);
+        });
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
         // Continue without PDF attachment
         pdfAttachment = null;
       }
-      
+
       const response = await fetch('http://localhost:5000/api/email/send-invoice', {
         method: 'POST',
         headers: {
@@ -351,9 +383,9 @@ class InvoiceService {
           }
         })
       });
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
         // Update invoice status in Firestore
         await updateDoc(doc(db, this.collectionName, invoiceId), {
@@ -362,7 +394,7 @@ class InvoiceService {
           emailMessageId: result.messageId,
           updatedAt: new Date()
         });
-        
+
         console.log('✅ Invoice email sent successfully:', result.messageId);
         return { success: true, messageId: result.messageId };
       } else {

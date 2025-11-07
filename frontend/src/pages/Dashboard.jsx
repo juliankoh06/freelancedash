@@ -25,6 +25,7 @@ const Dashboard = ({ user }) => {
   const [projectToResubmit, setProjectToResubmit] = useState(null);
   const [resubmitNotes, setResubmitNotes] = useState('');
   const [resubmitting, setResubmitting] = useState(false);
+  const [upcomingDeadlines, setUpcomingDeadlines] = useState([]);
 
   useEffect(() => {
     if (user) {
@@ -47,6 +48,42 @@ const Dashboard = ({ user }) => {
       );
       const projectsSnapshot = await getDocs(projectsQuery);
       const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Gather all upcoming deadlines from projects and milestones
+      let deadlines = [];
+      for (const project of projects) {
+        // Project-level deadline
+        if (project.dueDate) {
+          deadlines.push({
+            type: 'Project',
+            title: project.title,
+            dueDate: project.dueDate,
+            projectId: project.id
+          });
+        }
+        // Milestone-level deadlines
+        if (Array.isArray(project.milestones)) {
+          for (const milestone of project.milestones) {
+            if (milestone.dueDate) {
+              deadlines.push({
+                type: 'Milestone',
+                title: `${project.title}: ${milestone.title}`,
+                dueDate: milestone.dueDate,
+                projectId: project.id
+              });
+            }
+          }
+        }
+      }
+      // Only show deadlines in the future (today or later)
+      const now = new Date();
+      deadlines = deadlines.filter(d => {
+        if (!d.dueDate) return false;
+        const due = new Date(d.dueDate);
+        // Only include if due date is today or in the future
+        return due.setHours(0,0,0,0) >= now.setHours(0,0,0,0);
+      }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+      setUpcomingDeadlines(deadlines.slice(0, 3));
 
       // Fetch tasks filtered by user ID
       const tasksQuery = query(
@@ -182,42 +219,8 @@ const Dashboard = ({ user }) => {
       const projectsSnapshot = await getDocs(projectsQuery);
       const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      // For each project, fetch the latest rejected completion request
-      const projectsWithFeedback = await Promise.all(
-        projects.map(async (project) => {
-          try {
-            const completionQuery = query(
-              collection(db, 'completion_requests'),
-              where('projectId', '==', project.id),
-              where('status', '==', 'rejected')
-            );
-            const completionSnapshot = await getDocs(completionQuery);
-            
-            if (!completionSnapshot.empty) {
-              // Get the most recent rejection
-              const rejections = completionSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-              const latestRejection = rejections.sort((a, b) => {
-                const aDate = a.respondedAt?.toDate?.() || new Date(a.respondedAt);
-                const bDate = b.respondedAt?.toDate?.() || new Date(b.respondedAt);
-                return bDate - aDate;
-              })[0];
-              
-              return {
-                ...project,
-                clientNotes: latestRejection.clientNotes || 'No reason provided',
-                revisionCount: latestRejection.revisionCount || 1,
-                rejectedAt: latestRejection.respondedAt
-              };
-            }
-            return project;
-          } catch (error) {
-            console.error(`Error fetching completion request for project ${project.id}:`, error);
-            return project;
-          }
-        })
-      );
-      
-      setProjectsNeedingRevision(projectsWithFeedback);
+      // Projects with needsRevision flag should have client feedback in project document
+      setProjectsNeedingRevision(projects);
     } catch (error) {
       console.error('Error fetching projects needing revision:', error);
       setProjectsNeedingRevision([]);
@@ -232,54 +235,14 @@ const Dashboard = ({ user }) => {
 
     setResubmitting(true);
     try {
-      // Fetch project data to get current stats
       const projectRef = doc(db, 'projects', projectToResubmit.id);
-      
-      // Fetch tasks to calculate completion stats
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('projectId', '==', projectToResubmit.id)
-      );
-      const tasksSnapshot = await getDocs(tasksQuery);
-      const tasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      const totalTasks = tasks.length;
-      const completedTasks = tasks.filter(task => task.status === 'completed').length;
-      
-      // Fetch time tracking for hours
-      const timeTrackingQuery = query(
-        collection(db, 'timeTracking'),
-        where('projectId', '==', projectToResubmit.id)
-      );
-      const timeSnapshot = await getDocs(timeTrackingQuery);
-      const totalHours = timeSnapshot.docs.reduce((sum, doc) => {
-        return sum + (doc.data().duration || 0);
-      }, 0);
 
-      // Create new completion request
-      await addDoc(collection(db, 'completion_requests'), {
-        projectId: projectToResubmit.id,
-        projectTitle: projectToResubmit.title,
-        freelancerId: user.uid,
-        freelancerEmail: user.email,
-        clientId: projectToResubmit.clientId,
-        clientEmail: projectToResubmit.clientEmail,
-        status: 'pending_approval',
-        submittedAt: new Date(),
-        freelancerNotes: resubmitNotes,
-        isResubmission: true,
-        stats: {
-          totalTasks,
-          completedTasks,
-          totalHours: Math.round(totalHours / 3600000) // Convert ms to hours
-        }
-      });
-
-      // Update project: clear needsRevision and needsAttention flags
+      // Update project: clear needsRevision flag and add resubmission notes
       await updateDoc(projectRef, {
         needsRevision: false,
         needsAttention: false,
-        lastResubmittedAt: new Date()
+        lastResubmittedAt: new Date(),
+        resubmissionNotes: resubmitNotes
       });
 
       // Notify the client
@@ -313,6 +276,27 @@ const Dashboard = ({ user }) => {
 
   return (
     <div className="space-y-6">
+      {/* Upcoming Deadlines */}
+      {upcomingDeadlines.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-semibold text-blue-900 mb-4 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-blue-600" />
+            Upcoming Deadlines
+          </h3>
+          <ul className="divide-y divide-blue-100">
+            {upcomingDeadlines.map((deadline, idx) => (
+              <li key={idx} className="py-3 flex items-center justify-between">
+                <div>
+                  <span className="font-medium text-blue-800">{deadline.type}:</span> {deadline.title}
+                </div>
+                <div className="text-sm text-blue-700 font-semibold">
+                  {new Date(deadline.dueDate).toLocaleDateString()}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* Welcome Message */}
       <div className="mb-8">
         <p className="text-gray-600">Welcome back! Here's what's happening with your freelance business.</p>

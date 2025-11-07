@@ -1,17 +1,28 @@
-// Enhanced Project Service with comprehensive error handling and validation
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+// Project Service - uses backend API for data operations, Firestore for real-time subscriptions
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../firebase-config';
-import { projectValidation, errorHandling, dataIntegrity } from '../utils/validation';
+import { projectValidation, errorHandling } from '../utils/validation';
 
 class ProjectService {
   constructor() {
     this.listeners = new Map(); // Track real-time listeners
   }
 
-  // Enhanced project creation with validation
+  // Get auth token for API calls
+  async getAuthToken() {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (user) {
+      return await user.getIdToken();
+    }
+    throw new Error('User not authenticated');
+  }
+
+  // Enhanced project creation - calls backend API
   async createProject(projectData, userId) {
     try {
-      // Sanitize and validate data
+      // Client-side validation
       const sanitizedData = projectValidation.sanitizeProjectData(projectData);
       const validation = projectValidation.validateProjectData(sanitizedData);
       
@@ -19,26 +30,26 @@ class ProjectService {
         throw new Error(errorHandling.handleValidationErrors(validation.errors));
       }
 
-      // Add metadata
-      const projectWithMetadata = {
-        ...sanitizedData,
-        freelancerId: userId,
-        status: sanitizedData.clientEmail ? 'pending_approval' : 'active',
-        progress: 0,
-        totalHours: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        version: 1
-      };
-
-      // Create project with retry mechanism
-      const result = await errorHandling.retryOperation(async () => {
-        const docRef = await addDoc(collection(db, 'projects'), projectWithMetadata);
-        return { id: docRef.id, ...projectWithMetadata };
+      // Call backend API
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify({
+          ...sanitizedData,
+          freelancerId: userId
+        })
       });
 
-      // Log project creation
-      console.log('Project created successfully:', result.id);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create project');
+      }
+
+      const result = await response.json();
+      console.log('Project created successfully via backend:', result.id);
       
       return {
         success: true,
@@ -53,21 +64,10 @@ class ProjectService {
     }
   }
 
-  // Enhanced project update with validation
+  // Enhanced project update - calls backend API
   async updateProject(projectId, updateData, userId) {
     try {
-      // Get current project to validate updates
-      const currentProject = await this.getProjectById(projectId);
-      if (!currentProject.success) {
-        throw new Error('Project not found');
-      }
-
-      // Check if user has permission to update
-      if (currentProject.data.freelancerId !== userId) {
-        throw new Error('You do not have permission to update this project');
-      }
-
-      // Sanitize and validate update data
+      // Client-side validation
       const sanitizedData = projectValidation.sanitizeProjectData(updateData);
       const validation = projectValidation.validateProjectData(sanitizedData, true);
       
@@ -75,23 +75,27 @@ class ProjectService {
         throw new Error(errorHandling.handleValidationErrors(validation.errors));
       }
 
-      // Prepare update with metadata
-      const updateWithMetadata = {
-        ...sanitizedData,
-        updatedAt: new Date(),
-        version: (currentProject.data.version || 1) + 1
-      };
-
-      // Update project with retry mechanism
-      await errorHandling.retryOperation(async () => {
-        await updateDoc(doc(db, 'projects', projectId), updateWithMetadata);
+      // Call backend API
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        },
+        body: JSON.stringify(sanitizedData)
       });
 
-      console.log('Project updated successfully:', projectId);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update project');
+      }
+
+      const result = await response.json();
+      console.log('Project updated successfully via backend:', projectId);
       
       return {
         success: true,
-        data: { id: projectId, ...updateWithMetadata }
+        data: { id: projectId, ...sanitizedData }
       };
     } catch (error) {
       console.error('Error updating project:', error);
@@ -241,39 +245,25 @@ class ProjectService {
     }
   }
 
-  // Enhanced project deletion with cleanup
+  // Enhanced project deletion - calls backend API
   async deleteProject(projectId, userId) {
     try {
-      // Get current project to validate deletion
-      const currentProject = await this.getProjectById(projectId);
-      if (!currentProject.success) {
-        throw new Error('Project not found');
-      }
-
-      // Check if user has permission to delete
-      if (currentProject.data.freelancerId !== userId) {
-        throw new Error('You do not have permission to delete this project');
-      }
-
-      // Delete associated tasks first
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('projectId', '==', projectId)
-      );
-      const tasksSnapshot = await getDocs(tasksQuery);
-      
-      const taskDeletionPromises = tasksSnapshot.docs.map(taskDoc => 
-        deleteDoc(doc(db, 'tasks', taskDoc.id))
-      );
-      
-      await Promise.all(taskDeletionPromises);
-
-      // Delete project
-      await errorHandling.retryOperation(async () => {
-        await deleteDoc(doc(db, 'projects', projectId));
+      // Call backend API to delete project and associated data
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await this.getAuthToken()}`
+        }
       });
 
-      console.log('Project and associated tasks deleted successfully:', projectId);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete project');
+      }
+
+      const result = await response.json();
+      console.log('Project deleted successfully via backend:', projectId);
       
       return {
         success: true,

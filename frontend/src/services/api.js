@@ -46,37 +46,43 @@ class APIService {
       if (!response.ok) {
         // Handle 401 Unauthorized - token might be expired
         if (response.status === 401) {
-          console.log('🔄 Received 401, attempting token refresh...');
+          const isAuthEndpoint = endpoint.includes('/auth/login') || 
+                                 endpoint.includes('/auth/verify-otp') || 
+                                 endpoint.includes('/auth/register');
           
-          // Try to refresh the token if we have a current user
-          const { auth } = require('../firebase-config');
-          const currentUser = auth.currentUser;
-          
-          if (currentUser) {
-            try {
-              const newToken = await currentUser.getIdToken(true);
-              this.setToken(newToken);
-              
-              // Retry the request with the new token
-              const retryConfig = {
-                ...config,
-                headers: this.getHeaders(),
-              };
-              
-              const retryResponse = await fetch(url, retryConfig);
-              if (retryResponse.ok) {
-                return await retryResponse.json();
+          if (!isAuthEndpoint) {
+            console.log('🔄 Received 401, attempting token refresh...');
+            
+            // Try to refresh the token if we have a current user
+            const { auth } = require('../firebase-config');
+            const currentUser = auth.currentUser;
+            
+            if (currentUser) {
+              try {
+                const newToken = await currentUser.getIdToken(true);
+                this.setToken(newToken);
+                
+                // Retry the request with the new token
+                const retryConfig = {
+                  ...config,
+                  headers: this.getHeaders(),
+                };
+                
+                const retryResponse = await fetch(url, retryConfig);
+                if (retryResponse.ok) {
+                  return await retryResponse.json();
+                }
+              } catch (refreshError) {
+                console.error('❌ Token refresh failed:', refreshError);
+                // Redirect to login if token refresh fails
+                window.location.href = '/login';
+                return;
               }
-            } catch (refreshError) {
-              console.error('❌ Token refresh failed:', refreshError);
-              // Redirect to login if token refresh fails
+            } else {
+              // No current user, redirect to login
               window.location.href = '/login';
               return;
             }
-          } else {
-            // No current user, redirect to login
-            window.location.href = '/login';
-            return;
           }
         }
         
@@ -180,12 +186,6 @@ class APIService {
     });
   }
 
-  async sendInvoiceEmail(invoiceId) {
-    return this.request(`/invoices/${invoiceId}/send-email`, {
-      method: 'POST',
-    });
-  }
-
   // Transactions API
   async getTransactions() {
     return this.request('/transactions');
@@ -207,18 +207,6 @@ class APIService {
       method: 'PUT',
       body: JSON.stringify(updateData),
     });
-  }
-
-  // Payments API
-  async processPayment(paymentData) {
-    return this.request('/payments/process', {
-      method: 'POST',
-      body: JSON.stringify(paymentData),
-    });
-  }
-
-  async getPayments() {
-    return this.request('/payments');
   }
 
   // Invitations API
@@ -292,6 +280,20 @@ class APIService {
     return this.request('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
+    });
+  }
+
+  async forgotPasswordOTP(email) {
+    return this.request('/auth/forgot-password-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPasswordWithOTP(email, otp, newPassword) {
+    return this.request('/auth/reset-password-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, newPassword }),
     });
   }
 

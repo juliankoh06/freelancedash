@@ -22,10 +22,10 @@ class Contract {
     this.maxBillableHours = data.maxBillableHours || null;
     
     // Additional contract details
-    this.invoicingSchedule = data.invoicingSchedule || 'Upon milestone completion'; // or 'Weekly', 'Bi-weekly', 'Monthly'
+    this.invoicingSchedule = data.invoicingSchedule || 'Upon milestone completion';
     this.invoicingTerms = data.invoicingTerms || 'Payment due within 7 days of invoice';
     this.lateFeePolicy = data.lateFeePolicy || 'No late fees applied';
-    this.terminationClause = data.terminationClause || 'Either party may terminate with 7 days written notice';
+    this.terminationClause = data.terminationClause || 'This contract may be terminated by the client if the freelancer fails to complete the project as agreed. Failure to deliver the required work, meet deadlines, or achieve key project milestones will result in contract termination at the client\'s discretion.';
     this.confidentialityClause = data.confidentialityClause || 'Both parties agree to keep project details confidential';
     this.intellectualPropertyClause = data.intellectualPropertyClause || 'Upon full payment, all intellectual property rights transfer to client';
     
@@ -227,31 +227,28 @@ class Contract {
     }
   }
 
-  // Sign contract (freelancer or client)
+  // Sign contract 
   static async signContract(contractId, signatureData) {
     try {
-      const { userId, userType, signature } = signatureData; // userType: 'freelancer' or 'client'
+      const { userId, userType, signature } = signatureData; 
       
       const updateData = {
         updatedAt: new Date()
       };
 
-      if (userType === 'freelancer') {
-        updateData.freelancerSignature = signature;
-        updateData.freelancerSignedAt = new Date();
-      } else if (userType === 'client') {
+      if (userType === 'client') {
         updateData.clientSignature = signature;
         updateData.clientSignedAt = new Date();
       }
 
       await db.collection('contracts').doc(contractId).update(updateData);
 
-      // Check if both parties have signed
+      // Check if client has signed
       const contractDoc = await db.collection('contracts').doc(contractId).get();
       const contractData = contractDoc.data();
 
-      if (contractData.freelancerSignedAt && contractData.clientSignedAt) {
-        // Both signed - activate contract and project
+      if (contractData.clientSignedAt) {
+        // Client signed - activate contract and project
         await db.collection('contracts').doc(contractId).update({
           status: 'active',
           updatedAt: new Date()
@@ -267,19 +264,18 @@ class Contract {
 
         return { 
           success: true, 
-          message: 'Contract signed successfully. Both parties have signed - project is now active!',
+          message: 'Contract signed successfully. Project is now active!',
           fullySignedcontract: true,
           projectActivated: true
         };
       }
 
-      // Only one party has signed so far
-      const waitingFor = contractData.freelancerSignedAt ? 'client' : 'freelancer';
-      return { 
-        success: true, 
-        message: `Contract signed successfully. Waiting for ${waitingFor} signature.`,
+      // Waiting for client signature
+      return {
+        success: true,
+        message: 'Contract created. Waiting for client signature.',
         fullySignedcontract: false,
-        waitingFor: waitingFor
+        waitingFor: 'client'
       };
     } catch (error) {
       console.error('Error signing contract:', error);

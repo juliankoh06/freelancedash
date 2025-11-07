@@ -1,8 +1,8 @@
-const admin = require('firebase-admin');
+const { admin, db } = require('../firebase-admin');
 
 class ProgressTrackingService {
   constructor() {
-    this.db = admin.firestore();
+    this.db = db;
   }
 
   // Update task progress with verification and audit trail
@@ -91,9 +91,24 @@ class ProgressTrackingService {
         progressUpdateId: progressUpdateRef.id
       });
 
-      // Send notification if significant progress change
-      if (Math.abs(progressChange) >= 10) {
-        await this.sendProgressNotification(currentTask, progressChange, userId);
+      // Always send notification and email for any progress update
+      await this.sendProgressNotification(currentTask, progressChange, userId);
+      // Send progress update email to client
+      try {
+        const { sendProgressUpdateEmail } = require('./emailService');
+        // Fetch client email and freelancer name
+        const clientEmail = projectData.clientEmail;
+        const freelancerName = projectData.freelancerName || '';
+        if (clientEmail) {
+          await sendProgressUpdateEmail({
+            to: clientEmail,
+            projectTitle: projectData.title,
+            updateText: progressData.notes || `Progress changed from ${oldProgress}% to ${newProgress}%`,
+            freelancerName
+          });
+        }
+      } catch (emailErr) {
+        console.error('Error sending progress update email:', emailErr);
       }
 
       return {
