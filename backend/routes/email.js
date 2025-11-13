@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../firebase-admin');
+const admin = require('firebase-admin');
 const { transporter, sendProgressUpdateEmail } = require('../services/emailService');
 
 
@@ -21,7 +22,30 @@ async function sendInvoiceEmailWithPDF(invoiceId, invoiceData, pdfAttachment = n
     attachments: attachments
   };
 
+  // Validate required fields before attempting to send
+  if (!invoiceData.clientEmail) {
+    throw new Error('Client email is required to send invoice');
+  }
+  
+  if (!invoiceData.invoiceNumber) {
+    throw new Error('Invoice number is required to send invoice');
+  }
+  
+  if (!invoiceData.projectTitle) {
+    console.warn('⚠️ Project title missing in invoice data, using default');
+    invoiceData.projectTitle = invoiceData.projectTitle || 'Project';
+  }
+
+  console.log(`📧 Sending invoice email:`, {
+    invoiceId,
+    invoiceNumber: invoiceData.invoiceNumber,
+    clientEmail: invoiceData.clientEmail,
+    projectTitle: invoiceData.projectTitle
+  });
+
   const result = await transporter.sendMail(mailOptions);
+  
+  console.log(`✅ Email sent successfully. Message ID: ${result.messageId}`);
   
   // Update invoice status if invoice exists in database
   if (updateStatus && invoiceId && db) {
@@ -32,14 +56,16 @@ async function sendInvoiceEmailWithPDF(invoiceId, invoiceData, pdfAttachment = n
       if (invoiceDoc.exists) {
         await invoiceRef.update({
           status: 'sent',
-          sentAt: new Date(),
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
           emailMessageId: result.messageId
         });
+        console.log(`✅ Invoice ${invoiceId} status updated to 'sent'`);
       } else {
         console.log('⚠️ Invoice not found in database, skipping status update');
       }
     } catch (updateError) {
-      console.log('⚠️ Could not update invoice status:', updateError.message);
+      console.error('❌ Could not update invoice status:', updateError.message);
+      // Don't throw - email was sent successfully
     }
   }
 

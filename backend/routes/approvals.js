@@ -428,14 +428,37 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             issueDate: createdInvoice.issueDate?.toDate ? createdInvoice.issueDate.toDate() : new Date(createdInvoice.issueDate),
             dueDate: createdInvoice.dueDate?.toDate ? createdInvoice.dueDate.toDate() : new Date(createdInvoice.dueDate),
             milestoneTitle: milestone.title,
+            // Ensure required fields are present
+            invoiceNumber: createdInvoice.invoiceNumber || `INV-${invoiceId.slice(0, 8)}`,
+            projectTitle: createdInvoice.projectTitle || project.title,
           };
 
-          // Use shared email service helper
-          await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
-          console.log(`✅ Invoice email sent to ${project.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`);
+          // Validate required fields before sending
+          if (!emailInvoiceData.clientEmail) {
+            console.error("❌ Cannot send invoice email: clientEmail is missing");
+            throw new Error("Client email is required to send invoice");
+          }
+
+          if (!emailInvoiceData.invoiceNumber) {
+            console.error("❌ Cannot send invoice email: invoiceNumber is missing");
+            throw new Error("Invoice number is required to send invoice");
+          }
+
+          console.log(`📧 Attempting to send invoice email to: ${emailInvoiceData.clientEmail}`);
+          console.log(`📧 Invoice Number: ${emailInvoiceData.invoiceNumber}`);
+
+          // Use shared email service helper (updateStatus=true will update invoice status to 'sent')
+          const emailResult = await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
+          console.log(`✅ Invoice email sent successfully to ${emailInvoiceData.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`);
+          console.log(`✅ Email Message ID: ${emailResult.messageId}`);
         } catch (emailError) {
-          console.error("❌ Error sending invoice email:", emailError);
-          // Don't fail the invoice generation if email fails
+          console.error(" Error sending invoice email:", emailError);
+          console.error(" Error details:", {
+            message: emailError.message,
+            stack: emailError.stack,
+            invoiceId: invoiceId,
+            clientEmail: createdInvoice.clientEmail || project.clientEmail,
+          });
         }
       } catch (invoiceError) {
         console.error("Error generating invoice:", invoiceError);
@@ -602,19 +625,44 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
               clientName: createdInvoice.clientName || clientData.clientName || "Client",
               issueDate: createdInvoice.issueDate?.toDate ? createdInvoice.issueDate.toDate() : new Date(createdInvoice.issueDate),
               dueDate: createdInvoice.dueDate?.toDate ? createdInvoice.dueDate.toDate() : new Date(createdInvoice.dueDate),
+              // Ensure required fields are present
+              invoiceNumber: createdInvoice.invoiceNumber || `INV-${invoiceId.slice(0, 8)}`,
+              projectTitle: createdInvoice.projectTitle || project.title,
             };
 
-            // Use shared email service helper
-            await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
+            // Validate required fields before sending
+            if (!emailInvoiceData.clientEmail) {
+              console.error("❌ Cannot send invoice email: clientEmail is missing");
+              throw new Error("Client email is required to send invoice");
+            }
+
+            if (!emailInvoiceData.invoiceNumber) {
+              console.error("❌ Cannot send invoice email: invoiceNumber is missing");
+              throw new Error("Invoice number is required to send invoice");
+            }
+
+            console.log(`📧 Attempting to send project completion invoice email to: ${emailInvoiceData.clientEmail}`);
+            console.log(`📧 Invoice Number: ${emailInvoiceData.invoiceNumber}`);
+
+            // Use  email service helper (updateStatus=true will update invoice status to 'sent')
+            const emailResult = await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
             console.log(
-              ` Project completion invoice email sent to ${project.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`,
+              ` Project completion invoice email sent successfully to ${emailInvoiceData.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`,
             );
+            console.log(`✅ Email Message ID: ${emailResult.messageId}`);
           } catch (emailError) {
             console.error(
               " Error sending project completion invoice email:",
               emailError,
             );
-            // Don't fail the invoice generation if email fails
+            console.error(" Error details:", {
+              message: emailError.message,
+              stack: emailError.stack,
+              invoiceId: invoiceId,
+              clientEmail: createdInvoice.clientEmail || project.clientEmail,
+            });
+            // Note: Invoice was created with status 'sent', so it remains 'sent' even if email fails
+            // The invoice can be resent manually later if needed
           }
         } catch (invoiceError) {
           console.error(
@@ -671,10 +719,10 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             clientName: clientData.clientName || project.clientName || "Client",
             invoiceGenerated: invoiceGenerated
           });
-          console.log(`✅ Milestone approval email sent to ${freelancerEmail}`);
+          console.log(` Milestone approval email sent to ${freelancerEmail}`);
         }
       } catch (emailError) {
-        console.error("❌ Error sending milestone approval email:", emailError);
+        console.error(" Error sending milestone approval email:", emailError);
         // Don't fail the approval if email fails
       }
     }
