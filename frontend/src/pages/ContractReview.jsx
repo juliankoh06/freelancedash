@@ -442,6 +442,82 @@ const ContractReview = () => {
               </div>
             )}
 
+            {/* Milestones */}
+            {contract.milestones && contract.milestones.length > 0 && (
+              <div className="border-b pb-3">
+                <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center">
+                  <DollarSign className="w-4 h-4 mr-1" />
+                  Project Milestones
+                </h3>
+                <div className="space-y-3">
+                  {contract.milestones.map((milestone, index) => (
+                    <div
+                      key={milestone.id || index}
+                      className="bg-gray-50 rounded-lg p-3 border border-gray-200"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">
+                            {index + 1}. {milestone.title || milestone.name || "Milestone"}
+                          </h4>
+                          {milestone.description && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              {milestone.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-gray-900">
+                            RM{Number(milestone.amount || 0).toFixed(2)}
+                          </p>
+                          {milestone.percentage && (
+                            <p className="text-xs text-gray-500">
+                              {milestone.percentage}%
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {milestone.dueDate && (
+                        <div className="flex items-center text-xs text-gray-500 mt-2">
+                          <Calendar className="w-3 h-3 mr-1" />
+                          Due:{" "}
+                          {new Date(
+                            milestone.dueDate?.toDate
+                              ? milestone.dueDate.toDate()
+                              : milestone.dueDate,
+                          ).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="mt-3 pt-3 border-t border-gray-300">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-gray-700">
+                        Total Milestone Amount:
+                      </span>
+                      <span className="font-bold text-lg text-gray-900">
+                        RM
+                        {contract.milestones
+                          .reduce(
+                            (sum, m) => sum + Number(m.amount || 0),
+                            0,
+                          )
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                    {contract.paymentPolicy && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Payment Policy:{" "}
+                        {contract.paymentPolicy === "milestone"
+                          ? "Per Milestone"
+                          : "End of Project"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Revision Policy */}
             <div className="border-b pb-3">
               <h3 className="text-sm font-semibold text-gray-600 mb-1">

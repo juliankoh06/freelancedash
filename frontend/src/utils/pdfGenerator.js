@@ -326,11 +326,15 @@ export class ContractPDFGenerator {
       currentY += 10;
 
       const milestoneData = contract.milestones.map((milestone, index) => [
-        `${index + 1}. ${milestone.name}`,
+        `${index + 1}. ${milestone.title || milestone.name || "Milestone"}`,
         milestone.dueDate
-          ? new Date(milestone.dueDate).toLocaleDateString()
+          ? new Date(
+              milestone.dueDate?.toDate
+                ? milestone.dueDate.toDate()
+                : milestone.dueDate,
+            ).toLocaleDateString()
           : "TBD",
-        `RM${milestone.amount?.toFixed(2) || "0.00"}`,
+        `RM${Number(milestone.amount || 0).toFixed(2)}`,
         `${milestone.percentage || 0}%`,
       ]);
 

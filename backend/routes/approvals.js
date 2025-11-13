@@ -256,6 +256,21 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
 
     const milestone = project.milestones[milestoneIndex];
 
+    // Check if milestone is past due date
+    let isMilestoneOverdue = false;
+    let daysOverdue = 0;
+    if (milestone.dueDate) {
+      const milestoneDueDate = milestone.dueDate?.toDate 
+        ? milestone.dueDate.toDate() 
+        : new Date(milestone.dueDate);
+      const now = new Date();
+      if (!isNaN(milestoneDueDate.getTime()) && milestoneDueDate < now) {
+        isMilestoneOverdue = true;
+        daysOverdue = Math.floor((now - milestoneDueDate) / (1000 * 60 * 60 * 24));
+        console.log(`⚠️ WARNING: Milestone "${milestone.title}" is ${daysOverdue} days overdue. Invoice will still be generated.`);
+      }
+    }
+
     // Fetch client details early (needed for emails later)
     let clientData = {};
     if (clientId) {
@@ -375,7 +390,9 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
           taxRate: taxRate,
           paymentTerms: `Net ${paymentTermsDays}`,
           lineItems: lineItems,
-          notes: `Payment for milestone: ${milestone.title}${billableHoursNote}`,
+          notes: isMilestoneOverdue 
+            ? `Payment for milestone: ${milestone.title}${billableHoursNote} (Note: Milestone was ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue)`
+            : `Payment for milestone: ${milestone.title}${billableHoursNote}`,
           ...freelancerData,
           ...clientData,
         };
@@ -478,6 +495,22 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             amount: m.amount || 0,
           }));
 
+          // Check for overdue milestones
+          const overdueMilestones = [];
+          const now = new Date();
+          project.milestones.forEach((m) => {
+            if (m.dueDate) {
+              const milestoneDueDate = m.dueDate?.toDate 
+                ? m.dueDate.toDate() 
+                : new Date(m.dueDate);
+              if (!isNaN(milestoneDueDate.getTime()) && milestoneDueDate < now) {
+                const daysOverdue = Math.floor((now - milestoneDueDate) / (1000 * 60 * 60 * 24));
+                overdueMilestones.push({ title: m.title, daysOverdue });
+                console.log(`⚠️ WARNING: Milestone "${m.title}" was ${daysOverdue} days overdue when project completed.`);
+              }
+            }
+          });
+
           // Add billable hours to project completion invoice
           const billableResult = await calculateBillableHoursFromTasks(
             projectId, 
@@ -502,6 +535,15 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             billableHoursNote = ` + ${cappedHours.toFixed(2)} billable hours${capped ? ' (CAPPED)' : ''}`;
           }
 
+          // Build notes with overdue milestone information
+          let notes = `Final payment for all milestones${billableHoursNote} - Project: ${project.title}`;
+          if (overdueMilestones.length > 0) {
+            const overdueNote = overdueMilestones.map(m => 
+              `${m.title} (${m.daysOverdue} day${m.daysOverdue !== 1 ? 's' : ''} overdue)`
+            ).join(', ');
+            notes += ` (Note: Some milestones were overdue: ${overdueNote})`;
+          }
+
           const invoiceData = {
             projectId: projectId,
             projectTitle: project.title,
@@ -516,7 +558,7 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             taxRate: taxRate,
             paymentTerms: `Net ${paymentTermsDays}`,
             lineItems: lineItems,
-            notes: `Final payment for all milestones${billableHoursNote} - Project: ${project.title}`,
+            notes: notes,
             ...freelancerData,
             ...clientData,
           };

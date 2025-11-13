@@ -59,6 +59,7 @@ router.post("/create", async (req, res) => {
         milestones: projectData.milestones || [],
         revisionPolicy:
           "Standard revisions included as per project requirements",
+        paymentPolicy: projectData.paymentPolicy || "milestone", // 'milestone' or 'end'
 
         // Billable hours cap (not-to-exceed contract)
         enableBillableHours: projectData.enableBillableHours || false,

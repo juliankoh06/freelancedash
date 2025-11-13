@@ -8,7 +8,7 @@ import {
   Clock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase-config';
 
 const Dashboard = ({ user }) => {
@@ -31,6 +31,20 @@ const Dashboard = ({ user }) => {
     if (user) {
       fetchDashboardData();
       fetchProjectsNeedingRevision();
+      
+      // Set up real-time listener for projects
+      const projectsQuery = query(
+        collection(db, 'projects'),
+        where('freelancerId', '==', user.uid)
+      );
+      
+      const unsubscribe = onSnapshot(projectsQuery, () => {
+        // Refresh dashboard data when projects change
+        fetchDashboardData();
+        fetchProjectsNeedingRevision();
+      });
+      
+      return () => unsubscribe();
     }
   }, [user]);
 

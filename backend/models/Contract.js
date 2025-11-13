@@ -16,6 +16,7 @@ class Contract {
     this.endDate = data.endDate;
     this.milestones = data.milestones || [];
     this.revisionPolicy = data.revisionPolicy || 'Standard revisions included';
+    this.paymentPolicy = data.paymentPolicy || 'milestone'; // 'milestone' or 'end'
     
     // Billable hours cap (for not-to-exceed contracts)
     this.enableBillableHours = data.enableBillableHours || false;
@@ -64,6 +65,7 @@ class Contract {
         endDate: contract.endDate,
         milestones: contract.milestones,
         revisionPolicy: contract.revisionPolicy,
+        paymentPolicy: contract.paymentPolicy,
         
         // Billable hours cap
         enableBillableHours: contract.enableBillableHours,

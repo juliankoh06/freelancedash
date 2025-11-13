@@ -234,10 +234,18 @@ const ProjectTracking = ({ selectedProjectId }) => {
           timestamp: new Date().toISOString(),
         });
 
-        const projectsData = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+        const projectsData = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Ensure dates are properly handled
+            startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate ? new Date(data.startDate) : null),
+            dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null),
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null),
+            updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : null),
+          };
+        });
 
         // Auto-update pending contract projects past due date to invitation_expired
         const now = new Date();
@@ -451,8 +459,11 @@ const ProjectTracking = ({ selectedProjectId }) => {
 
       if (!uid) {
         console.error("No user ID found for fetching projects");
-        setProjects([]);
-        setFilteredProjects([]);
+        // Don't clear projects if real-time listener is active - let it handle updates
+        if (!realTimeUnsubscribe) {
+          setProjects([]);
+          setFilteredProjects([]);
+        }
         return;
       }
 
@@ -486,8 +497,12 @@ const ProjectTracking = ({ selectedProjectId }) => {
         stack: error.stack,
         timestamp: new Date().toISOString(),
       });
-      setProjects([]);
-      setFilteredProjects([]);
+      // Don't clear projects if real-time listener is active - let it handle updates
+      // Only clear if this is the initial fetch and listener isn't set up yet
+      if (!realTimeUnsubscribe) {
+        setProjects([]);
+        setFilteredProjects([]);
+      }
     }
   };
 
@@ -2409,7 +2424,11 @@ const ProjectTracking = ({ selectedProjectId }) => {
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
-                    <AddProjectModal onCreated={fetchProjects} />
+                    <AddProjectModal onCreated={() => {
+                      // Real-time listener will automatically update projects
+                      // No need to manually fetch - the listener handles updates
+                      console.log("Project created - real-time listener will update the list");
+                    }} />
                   </div>
                 </div>
 

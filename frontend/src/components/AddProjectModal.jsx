@@ -201,8 +201,11 @@ const AddProjectModal = ({ onCreated }) => {
       form.clientEmail = trimmedEmail;
     }
 
-    // Validate milestones if any are added
-    // No milestone percentage validation required
+    // Validate milestones - require at least 1 milestone
+    if (milestones.length === 0) {
+      setError("At least 1 milestone is required before creating a project");
+      return;
+    }
 
     // Validate billable hours cap if enabled
     if (enableBillableHours) {
@@ -312,7 +315,10 @@ const AddProjectModal = ({ onCreated }) => {
         alert("✅ Project created successfully!");
       }
 
-      onCreated?.(created);
+      // Call onCreated callback with the created project and current user ID
+      if (onCreated && typeof onCreated === 'function') {
+        onCreated(created, currentUser?.uid);
+      }
       setOpen(false);
       clearForm();
     } catch (err) {
@@ -570,7 +576,7 @@ const AddProjectModal = ({ onCreated }) => {
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-medium">
-                    Milestones (Optional but Recommended)
+                    Milestones <span className="text-red-500">*</span> (Required)
                   </label>
                   <button
                     type="button"
@@ -582,7 +588,7 @@ const AddProjectModal = ({ onCreated }) => {
                 </div>
                 <p className="text-xs text-gray-500 mb-3">
                   Define project milestones that will be included in the
-                  contract
+                  contract. At least 1 milestone is required.
                 </p>
 
                 {/* Milestone List */}
