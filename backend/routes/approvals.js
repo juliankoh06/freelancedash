@@ -256,21 +256,6 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
 
     const milestone = project.milestones[milestoneIndex];
 
-    // Check if milestone is past due date
-    let isMilestoneOverdue = false;
-    let daysOverdue = 0;
-    if (milestone.dueDate) {
-      const milestoneDueDate = milestone.dueDate?.toDate 
-        ? milestone.dueDate.toDate() 
-        : new Date(milestone.dueDate);
-      const now = new Date();
-      if (!isNaN(milestoneDueDate.getTime()) && milestoneDueDate < now) {
-        isMilestoneOverdue = true;
-        daysOverdue = Math.floor((now - milestoneDueDate) / (1000 * 60 * 60 * 24));
-        console.log(`⚠️ WARNING: Milestone "${milestone.title}" is ${daysOverdue} days overdue. Invoice will still be generated.`);
-      }
-    }
-
     // Fetch client details early (needed for emails later)
     let clientData = {};
     if (clientId) {
@@ -390,9 +375,7 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
           taxRate: taxRate,
           paymentTerms: `Net ${paymentTermsDays}`,
           lineItems: lineItems,
-          notes: isMilestoneOverdue 
-            ? `Payment for milestone: ${milestone.title}${billableHoursNote} (Note: Milestone was ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue)`
-            : `Payment for milestone: ${milestone.title}${billableHoursNote}`,
+          notes: `Payment for milestone: ${milestone.title}${billableHoursNote}`,
           ...freelancerData,
           ...clientData,
         };
@@ -428,37 +411,14 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             issueDate: createdInvoice.issueDate?.toDate ? createdInvoice.issueDate.toDate() : new Date(createdInvoice.issueDate),
             dueDate: createdInvoice.dueDate?.toDate ? createdInvoice.dueDate.toDate() : new Date(createdInvoice.dueDate),
             milestoneTitle: milestone.title,
-            // Ensure required fields are present
-            invoiceNumber: createdInvoice.invoiceNumber || `INV-${invoiceId.slice(0, 8)}`,
-            projectTitle: createdInvoice.projectTitle || project.title,
           };
 
-          // Validate required fields before sending
-          if (!emailInvoiceData.clientEmail) {
-            console.error("❌ Cannot send invoice email: clientEmail is missing");
-            throw new Error("Client email is required to send invoice");
-          }
-
-          if (!emailInvoiceData.invoiceNumber) {
-            console.error("❌ Cannot send invoice email: invoiceNumber is missing");
-            throw new Error("Invoice number is required to send invoice");
-          }
-
-          console.log(`📧 Attempting to send invoice email to: ${emailInvoiceData.clientEmail}`);
-          console.log(`📧 Invoice Number: ${emailInvoiceData.invoiceNumber}`);
-
-          // Use shared email service helper (updateStatus=true will update invoice status to 'sent')
-          const emailResult = await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
-          console.log(`✅ Invoice email sent successfully to ${emailInvoiceData.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`);
-          console.log(`✅ Email Message ID: ${emailResult.messageId}`);
+          // Use shared email service helper
+          await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
+          console.log(`✅ Invoice email sent to ${project.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`);
         } catch (emailError) {
-          console.error(" Error sending invoice email:", emailError);
-          console.error(" Error details:", {
-            message: emailError.message,
-            stack: emailError.stack,
-            invoiceId: invoiceId,
-            clientEmail: createdInvoice.clientEmail || project.clientEmail,
-          });
+          console.error("❌ Error sending invoice email:", emailError);
+          // Don't fail the invoice generation if email fails
         }
       } catch (invoiceError) {
         console.error("Error generating invoice:", invoiceError);
@@ -505,8 +465,6 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             console.warn("Could not fetch freelancer details:", err.message);
           }
 
-          // Client details already fetched earlier (clientData variable)
-
           // Prepare invoice data for service
           const taxRate = project.taxRate || 0;
           const paymentTermsDays = project.paymentTerms || 30;
@@ -518,27 +476,11 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             amount: m.amount || 0,
           }));
 
-          // Check for overdue milestones
-          const overdueMilestones = [];
-          const now = new Date();
-          project.milestones.forEach((m) => {
-            if (m.dueDate) {
-              const milestoneDueDate = m.dueDate?.toDate 
-                ? m.dueDate.toDate() 
-                : new Date(m.dueDate);
-              if (!isNaN(milestoneDueDate.getTime()) && milestoneDueDate < now) {
-                const daysOverdue = Math.floor((now - milestoneDueDate) / (1000 * 60 * 60 * 24));
-                overdueMilestones.push({ title: m.title, daysOverdue });
-                console.log(`⚠️ WARNING: Milestone "${m.title}" was ${daysOverdue} days overdue when project completed.`);
-              }
-            }
-          });
-
           // Add billable hours to project completion invoice
           const billableResult = await calculateBillableHoursFromTasks(
             projectId, 
             project.hourlyRate,
-            project.contractId // Pass contract ID to check billable hours cap
+            project.contractId 
           );
           
           const { cappedHours, cappedAmount, capped, warningMessage } = billableResult;
@@ -558,15 +500,6 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             billableHoursNote = ` + ${cappedHours.toFixed(2)} billable hours${capped ? ' (CAPPED)' : ''}`;
           }
 
-          // Build notes with overdue milestone information
-          let notes = `Final payment for all milestones${billableHoursNote} - Project: ${project.title}`;
-          if (overdueMilestones.length > 0) {
-            const overdueNote = overdueMilestones.map(m => 
-              `${m.title} (${m.daysOverdue} day${m.daysOverdue !== 1 ? 's' : ''} overdue)`
-            ).join(', ');
-            notes += ` (Note: Some milestones were overdue: ${overdueNote})`;
-          }
-
           const invoiceData = {
             projectId: projectId,
             projectTitle: project.title,
@@ -581,7 +514,7 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             taxRate: taxRate,
             paymentTerms: `Net ${paymentTermsDays}`,
             lineItems: lineItems,
-            notes: notes,
+            notes: `Final payment for all milestones${billableHoursNote} - Project: ${project.title}`,
             ...freelancerData,
             ...clientData,
           };
@@ -625,44 +558,19 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
               clientName: createdInvoice.clientName || clientData.clientName || "Client",
               issueDate: createdInvoice.issueDate?.toDate ? createdInvoice.issueDate.toDate() : new Date(createdInvoice.issueDate),
               dueDate: createdInvoice.dueDate?.toDate ? createdInvoice.dueDate.toDate() : new Date(createdInvoice.dueDate),
-              // Ensure required fields are present
-              invoiceNumber: createdInvoice.invoiceNumber || `INV-${invoiceId.slice(0, 8)}`,
-              projectTitle: createdInvoice.projectTitle || project.title,
             };
 
-            // Validate required fields before sending
-            if (!emailInvoiceData.clientEmail) {
-              console.error("❌ Cannot send invoice email: clientEmail is missing");
-              throw new Error("Client email is required to send invoice");
-            }
-
-            if (!emailInvoiceData.invoiceNumber) {
-              console.error("❌ Cannot send invoice email: invoiceNumber is missing");
-              throw new Error("Invoice number is required to send invoice");
-            }
-
-            console.log(`📧 Attempting to send project completion invoice email to: ${emailInvoiceData.clientEmail}`);
-            console.log(`📧 Invoice Number: ${emailInvoiceData.invoiceNumber}`);
-
-            // Use  email service helper (updateStatus=true will update invoice status to 'sent')
-            const emailResult = await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
+            // Use shared email service helper
+            await sendInvoiceEmailWithPDF(invoiceId, emailInvoiceData, pdfAttachment, true);
             console.log(
-              ` Project completion invoice email sent successfully to ${emailInvoiceData.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`,
+              ` Project completion invoice email sent to ${project.clientEmail}${pdfAttachment ? ' with PDF attachment' : ''}`,
             );
-            console.log(`✅ Email Message ID: ${emailResult.messageId}`);
           } catch (emailError) {
             console.error(
               " Error sending project completion invoice email:",
               emailError,
             );
-            console.error(" Error details:", {
-              message: emailError.message,
-              stack: emailError.stack,
-              invoiceId: invoiceId,
-              clientEmail: createdInvoice.clientEmail || project.clientEmail,
-            });
-            // Note: Invoice was created with status 'sent', so it remains 'sent' even if email fails
-            // The invoice can be resent manually later if needed
+            // Don't fail the invoice generation if email fails
           }
         } catch (invoiceError) {
           console.error(
@@ -719,10 +627,10 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
             clientName: clientData.clientName || project.clientName || "Client",
             invoiceGenerated: invoiceGenerated
           });
-          console.log(` Milestone approval email sent to ${freelancerEmail}`);
+          console.log(`✅ Milestone approval email sent to ${freelancerEmail}`);
         }
       } catch (emailError) {
-        console.error(" Error sending milestone approval email:", emailError);
+        console.error("❌ Error sending milestone approval email:", emailError);
         // Don't fail the approval if email fails
       }
     }
