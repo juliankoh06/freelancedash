@@ -58,7 +58,7 @@ const MockPaymentModal = ({
       const paymentRef = `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
       
       // Calculate total amount including late fee
-      const baseAmount = invoiceData?.total || invoiceData?.amount || 0;
+      const baseAmount = safeInvoiceTotal;
       const lateFee = lateFeeInfo?.lateFee || 0;
       const totalAmount = baseAmount + lateFee;
       
@@ -105,6 +105,9 @@ const MockPaymentModal = ({
 
   if (!isOpen) return null;
 
+  const invoiceTotal = Number(invoiceData?.totalAmount ?? invoiceData?.total ?? invoiceData?.amount ?? 0);
+  const safeInvoiceTotal = isNaN(invoiceTotal) ? 0 : invoiceTotal;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -128,7 +131,7 @@ const MockPaymentModal = ({
           <div className="text-center">
             <p className="text-sm text-gray-600">Invoice Amount</p>
             <p className="text-2xl font-bold text-gray-900">
-              RM{(invoiceData?.total || invoiceData?.amount || 0).toFixed(2)}
+              RM{safeInvoiceTotal.toFixed(2)}
             </p>
             
             {/* Late Fee Warning */}
@@ -170,7 +173,7 @@ const MockPaymentModal = ({
               <div className="mt-4 pt-4 border-t border-gray-300">
                 <p className="text-sm text-gray-600">Total Amount Due</p>
                 <p className="text-3xl font-bold text-gray-900">
-                  RM{((invoiceData?.total || invoiceData?.amount || 0) + lateFeeInfo.lateFee).toFixed(2)}
+                  RM{(safeInvoiceTotal + lateFeeInfo.lateFee).toFixed(2)}
                 </p>
               </div>
             )}

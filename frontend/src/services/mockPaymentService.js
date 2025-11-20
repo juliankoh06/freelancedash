@@ -8,6 +8,11 @@ class MockPaymentService {
     this.contractsCollection = 'contracts';
   }
 
+  getInvoiceAmount(invoiceData) {
+    const amount = Number(invoiceData?.totalAmount ?? invoiceData?.total ?? invoiceData?.amount ?? 0);
+    return isNaN(amount) ? 0 : amount;
+  }
+
   // Calculate late fee based on contract policy or custom invoice policy
   async calculateLateFee(invoiceData, paidAtDate) {
     try {
@@ -40,7 +45,7 @@ class MockPaymentService {
           const feePercentage = parseFloat(percentMatch[1]);
           const gracePeriod = daysMatch ? parseInt(daysMatch[1]) : 0;
           if (daysOverdue > gracePeriod) {
-            const invoiceAmount = invoiceData.total || invoiceData.amount || 0;
+            const invoiceAmount = this.getInvoiceAmount(invoiceData);
             lateFee = (invoiceAmount * feePercentage) / 100;
           }
         }
@@ -76,8 +81,9 @@ class MockPaymentService {
       const feePercentage = parseFloat(percentMatch[1]);
       const gracePeriod = daysMatch ? parseInt(daysMatch[1]) : 0;
 
+      const invoiceAmount = this.getInvoiceAmount(invoiceData);
       const lateFee = daysOverdue > gracePeriod
-        ? (invoiceData.total || invoiceData.amount || 0) * feePercentage / 100
+        ? invoiceAmount * feePercentage / 100
         : 0;
 
       return { isLate: true, lateFee: Math.round(lateFee * 100) / 100, daysOverdue };
@@ -96,7 +102,7 @@ class MockPaymentService {
       const paidAtDate = paymentData.paidAt instanceof Date ? paymentData.paidAt : new Date();
       const lateFeeInfo = await this.calculateLateFee(invoiceData, paidAtDate);
 
-      const baseAmount = paymentData.amount;
+      const baseAmount = this.getInvoiceAmount(invoiceData);
       const lateFee = lateFeeInfo.lateFee || 0;
       const totalAmount = baseAmount + lateFee;
 
@@ -127,8 +133,79 @@ class MockPaymentService {
         isLatePayment: lateFeeInfo.isLate || false,
         daysOverdue: lateFeeInfo.daysOverdue || 0,
         paymentMethod: paymentData.paymentMethod,
+        requiresClientApproval: false,
+        clientApproved: true,
+        clientApprovedAt: paidAtDate,
         updatedAt: new Date()
       });
+
+      // Update or create corresponding transaction entry
+      try {
+        let transactionId = invoiceData.transactionId || null;
+        let transactionDocRef = transactionId ? doc(db, 'transactions', transactionId) : null;
+
+        if (!transactionId) {
+          // Try locating by invoiceId
+          const byInvoiceIdQuery = query(
+            collection(db, 'transactions'),
+            where('invoiceId', '==', invoiceData.id)
+          );
+          const byInvoiceIdSnapshot = await getDocs(byInvoiceIdQuery);
+
+          if (!byInvoiceIdSnapshot.empty) {
+            transactionDocRef = byInvoiceIdSnapshot.docs[0].ref;
+            transactionId = byInvoiceIdSnapshot.docs[0].id;
+          }
+        }
+
+        if (!transactionId && invoiceData.invoiceNumber) {
+          // Fallback to invoice number look-up
+          const byInvoiceNumberQuery = query(
+            collection(db, 'transactions'),
+            where('invoiceNumber', '==', invoiceData.invoiceNumber)
+          );
+          const byInvoiceNumberSnapshot = await getDocs(byInvoiceNumberQuery);
+
+          if (!byInvoiceNumberSnapshot.empty) {
+            transactionDocRef = byInvoiceNumberSnapshot.docs[0].ref;
+            transactionId = byInvoiceNumberSnapshot.docs[0].id;
+          }
+        }
+
+        const transactionUpdateData = {
+          status: 'paid',
+          amount: totalAmount,
+          baseAmount,
+          lateFee,
+          paymentMethod: paymentData.paymentMethod,
+          paymentId: paymentRef.id,
+          paidAt: paidAtDate,
+          invoiceId: invoiceData.id,
+          invoiceNumber: invoiceData.invoiceNumber || null,
+          updatedAt: new Date(),
+        };
+
+        if (transactionDocRef) {
+          await updateDoc(transactionDocRef, transactionUpdateData);
+        } else {
+          await addDoc(collection(db, 'transactions'), {
+            ...transactionUpdateData,
+            clientId: invoiceData.clientId || 'N/A',
+            clientEmail: invoiceData.clientEmail || '',
+            freelancerId: invoiceData.freelancerId || 'N/A',
+            freelancerName: invoiceData.freelancerName || '',
+            projectId: invoiceData.projectId || 'N/A',
+            projectTitle: invoiceData.projectTitle || invoiceData.invoiceNumber || 'Invoice Payment',
+            description: `Payment for invoice ${invoiceData.invoiceNumber || invoiceData.id}`,
+            currency: invoiceData.currency || 'RM',
+            type: 'payment',
+            createdAt: new Date(),
+          });
+        }
+      } catch (transactionError) {
+        console.error('Error syncing transaction record:', transactionError);
+        // Continue without failing the payment if transaction sync fails
+      }
 
       // Send payment notification email to freelancer
       try {

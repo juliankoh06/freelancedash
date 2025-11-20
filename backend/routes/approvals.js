@@ -273,8 +273,7 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
       }
     }
 
-    // Update milestone status
-    milestone.status = "approved";
+    // Set approval metadata
     milestone.approvedAt = admin.firestore.Timestamp.now();
     milestone.approvedBy = clientId;
     milestone.clientApproved = true;
@@ -291,6 +290,8 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
     let invoiceGenerated = false;
 
     // Handle payment policy
+    // For "milestone" policy, status will be set to "invoiced" after successful invoice generation
+    // For other policies, status will be set to "approved"
     if (project.paymentPolicy === "milestone") {
       // Generate invoice immediately for this milestone
       try {
@@ -388,6 +389,8 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
         milestone.invoiceId = invoiceId;
         milestone.status = "invoiced";
         invoiceGenerated = true;
+        
+        console.log(`✅ Invoice ${invoiceId} generated for milestone ${milestoneId}, status set to "invoiced"`);
 
         // Send invoice email to client with PDF attachment
         try {
@@ -422,7 +425,13 @@ router.post("/milestone/:milestoneId/approve", async (req, res) => {
         }
       } catch (invoiceError) {
         console.error("Error generating invoice:", invoiceError);
+        // If invoice generation fails, throw error to prevent milestone from being marked as approved
+        // This ensures the milestone status remains unchanged if invoice generation fails
+        throw new Error(`Failed to generate invoice for milestone: ${invoiceError.message}`);
       }
+    } else {
+      // For non-milestone payment policies, set status to "approved"
+      milestone.status = "approved";
     }
 
     // Update project with modified milestone

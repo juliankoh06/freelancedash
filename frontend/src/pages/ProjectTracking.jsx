@@ -139,8 +139,6 @@ const ProjectTracking = ({ selectedProjectId }) => {
   const [formData, setFormData] = useState({
     title: "",
     priority: "medium",
-    startDate: "",
-    dueDate: "",
     hourlyRate: "",
     clientEmail: "",
   });
@@ -237,7 +235,7 @@ const ProjectTracking = ({ selectedProjectId }) => {
         const projectsData = snapshot.docs.map((doc) => {
           const data = doc.data();
           return {
-            id: doc.id,
+          id: doc.id,
             ...data,
             // Ensure dates are properly handled
             startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate ? new Date(data.startDate) : null),
@@ -461,8 +459,8 @@ const ProjectTracking = ({ selectedProjectId }) => {
         console.error("No user ID found for fetching projects");
         // Don't clear projects if real-time listener is active - let it handle updates
         if (!realTimeUnsubscribe) {
-          setProjects([]);
-          setFilteredProjects([]);
+        setProjects([]);
+        setFilteredProjects([]);
         }
         return;
       }
@@ -500,8 +498,8 @@ const ProjectTracking = ({ selectedProjectId }) => {
       // Don't clear projects if real-time listener is active - let it handle updates
       // Only clear if this is the initial fetch and listener isn't set up yet
       if (!realTimeUnsubscribe) {
-        setProjects([]);
-        setFilteredProjects([]);
+      setProjects([]);
+      setFilteredProjects([]);
       }
     }
   };
@@ -4277,90 +4275,7 @@ const ProjectTracking = ({ selectedProjectId }) => {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                          Start Date
-                          {formMode === "edit" &&
-                            (selectedProject?.clientId ||
-                              selectedProject?.clientEmail) && (
-                              <Lock
-                                className="w-4 h-4 ml-2 text-amber-600"
-                                title="Locked: Agreed timeline"
-                              />
-                            )}
-                        </label>
-                        <input
-                          type="date"
-                          name="startDate"
-                          value={formData.startDate}
-                          onChange={handleChange}
-                          className={`w-full p-3 border rounded-lg shadow-sm ${
-                            formMode === "view" ||
-                            (formMode === "edit" &&
-                              (selectedProject?.clientId ||
-                                selectedProject?.clientEmail))
-                              ? "bg-gray-100 cursor-not-allowed border-gray-200"
-                              : "border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          }`}
-                          required
-                          disabled={
-                            formMode === "view" ||
-                            (formMode === "edit" &&
-                              (selectedProject?.clientId ||
-                                selectedProject?.clientEmail))
-                          }
-                        />
-                        {formMode === "edit" &&
-                          (selectedProject?.clientId ||
-                            selectedProject?.clientEmail) && (
-                            <p className="text-xs text-amber-600 mt-1">
-                              🔒 Locked: Agreed timeline
-                            </p>
-                          )}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                          Due Date
-                          {formMode === "edit" &&
-                            (selectedProject?.clientId ||
-                              selectedProject?.clientEmail) && (
-                              <Lock
-                                className="w-4 h-4 ml-2 text-amber-600"
-                                title="Locked: Agreed deadline"
-                              />
-                            )}
-                        </label>
-                        <input
-                          type="date"
-                          name="dueDate"
-                          value={formData.dueDate}
-                          onChange={handleChange}
-                          className={`w-full p-3 border rounded-lg shadow-sm ${
-                            formMode === "view" ||
-                            (formMode === "edit" &&
-                              (selectedProject?.clientId ||
-                                selectedProject?.clientEmail))
-                              ? "bg-gray-100 cursor-not-allowed border-gray-200"
-                              : "border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          }`}
-                          required
-                          disabled={
-                            formMode === "view" ||
-                            (formMode === "edit" &&
-                              (selectedProject?.clientId ||
-                                selectedProject?.clientEmail))
-                          }
-                        />
-                        {formMode === "edit" &&
-                          (selectedProject?.clientId ||
-                            selectedProject?.clientEmail) && (
-                            <p className="text-xs text-amber-600 mt-1">
-                              🔒 Locked: Agreed deadline
-                            </p>
-                          )}
-                      </div>
-                    </div>
+
                   </div>
 
                   <div className="flex justify-end space-x-4 pt-6">
@@ -4416,7 +4331,6 @@ const ProjectTracking = ({ selectedProjectId }) => {
                       )}
                   </div>
                   <div className="flex items-center space-x-3">
-                    {/* Complete Project button removed - projects complete automatically when all milestones are approved */}
                     <button
                       onClick={() => {
                         setShowTaskForm(true);
