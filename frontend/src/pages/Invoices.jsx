@@ -233,7 +233,6 @@ const Invoices = () => {
       clientName: '',
       clientEmail: '',
       freelancerId: currentUser?.uid,
-      freelancerName: currentUser?.displayName || currentUser?.email,
       freelancerEmail: currentUser?.email,
       invoiceNumber: `INV-${Date.now()}`,
       issueDate: new Date(),

@@ -113,6 +113,7 @@ class TimeTrackingService {
 
       await this.db.collection('tasks').doc(taskId).update({
         timeSpent: newTimeSpent,
+        actualHours: newTimeSpent,
         trackingStartTime: null,
         currentSessionId: null,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()

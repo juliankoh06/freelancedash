@@ -27,7 +27,7 @@ async function calculateBillableHoursFromTasks(projectId, hourlyRate, contractId
     tasksSnapshot.forEach(doc => {
       const task = doc.data();
       // Sum up actual hours or estimated hours for completed billable tasks
-      const hours = task.actualHours || task.estimatedHours || 0;
+      const hours = task.actualHours || task.timeSpent || task.estimatedHours || 0;
       totalHours += hours;
     });
 
