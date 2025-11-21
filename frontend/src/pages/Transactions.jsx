@@ -31,42 +31,66 @@ const Transactions = ({ user }) => {
   }, [transactions, searchTerm, statusFilter, dateFilter]);
 
   const fetchTransactions = async () => {
+    setLoading(true);
+
+    const targetFields = user.role === 'freelancer'
+      ? [{ field: 'freelancerId', value: user.uid }]
+      : [
+          user?.uid ? { field: 'clientId', value: user.uid } : null,
+          user?.email ? { field: 'clientEmail', value: user.email } : null
+        ].filter(Boolean);
+
+    if (targetFields.length === 0) {
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      setLoading(true);
-      
-      const fieldName = user.role === 'freelancer' ? 'freelancerId' : 'clientId';
-      
-      const transactionsQuery = query(
-        collection(db, 'transactions'),
-        where(fieldName, '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const transactionsSnapshot = await getDocs(transactionsQuery);
-      const transactionsData = transactionsSnapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      }));
-      
-      setTransactions(transactionsData);
+      const transactionsMap = new Map();
+
+      for (const { field, value } of targetFields) {
+        let snapshot;
+
+        try {
+          const orderedQuery = query(
+            collection(db, 'transactions'),
+            where(field, '==', value),
+            orderBy('createdAt', 'desc')
+          );
+          snapshot = await getDocs(orderedQuery);
+        } catch (error) {
+          console.error(`Error fetching transactions with orderBy for field ${field}:`, error);
+          const fallbackQuery = query(
+            collection(db, 'transactions'),
+            where(field, '==', value)
+          );
+          snapshot = await getDocs(fallbackQuery);
+        }
+
+        snapshot.docs.forEach(doc => {
+          transactionsMap.set(doc.id, {
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+      }
+
+      const mergedTransactions = Array.from(transactionsMap.values()).sort((a, b) => {
+        const getDate = (transaction) => {
+          if (!transaction.createdAt) return 0;
+          return transaction.createdAt.toDate
+            ? transaction.createdAt.toDate().getTime()
+            : new Date(transaction.createdAt).getTime();
+        };
+
+        return getDate(b) - getDate(a);
+      });
+
+      setTransactions(mergedTransactions);
     } catch (error) {
       console.error('Error fetching transactions:', error);
-      // If orderBy fails, try without it
-      try {
-        const fieldName = user.role === 'freelancer' ? 'freelancerId' : 'clientId';
-        const simpleQuery = query(
-          collection(db, 'transactions'),
-          where(fieldName, '==', user.uid)
-        );
-        const simpleSnapshot = await getDocs(simpleQuery);
-        const simpleData = simpleSnapshot.docs.map(doc => ({ 
-          id: doc.id, 
-          ...doc.data() 
-        }));
-        setTransactions(simpleData);
-      } catch (retryError) {
-        console.error('Retry also failed:', retryError);
-      }
+      setTransactions([]);
     } finally {
       setLoading(false);
     }
